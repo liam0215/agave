@@ -166,6 +166,8 @@ fn create_client(
 }
 
 fn main() {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
     solana_logger::setup_with_default_filter();
     solana_metrics::set_panic_hook("bench-tps", /*version:*/ None);
 
@@ -275,4 +277,6 @@ fn main() {
         None
     };
     do_bench_tps(client, cli_config, keypairs, nonce_keypairs);
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
 }

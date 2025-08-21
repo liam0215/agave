@@ -162,6 +162,7 @@ args+=(
   --no-wait-for-vote-to-start-leader
   --full-rpc-api
   --allow-private-addr
+  --rocksdb-ledger-compression lz4
 )
 default_arg --gossip-port 8001
 default_arg --log -
