@@ -17,6 +17,8 @@ use {
 
 #[tokio::main]
 async fn main() {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
     let default_keypair = solana_cli_config::Config::default().keypair_path;
 
     solana_logger::setup_with_default_filter();
@@ -100,4 +102,6 @@ async fn main() {
     });
 
     run_faucet(faucet, faucet_addr, None).await;
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
 }

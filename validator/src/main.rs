@@ -164,6 +164,8 @@ fn configure_banking_trace_dir_byte_limit(
 }
 
 pub fn main() {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
     let default_args = DefaultArgs::new();
     let solana_version = solana_version::version!();
     let cli_app = app(solana_version, &default_args);
@@ -1507,6 +1509,8 @@ pub fn main() {
     }
     info!("Validator initialized");
     validator.join();
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
     info!("Validator exiting..");
 }
 

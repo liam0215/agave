@@ -69,12 +69,12 @@ solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
 solana-net-utils = { workspace = true }
 solana-perf = { workspace = true }
-solana-pubkey = { version = "=2.2.1", features = ["rand"] }
+solana-pubkey = { workspace = true, features = ["rand"] }
 solana-rayon-threadlimit = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-runtime = { workspace = true }
-solana-sanitize = "=2.2.1"
-solana-sdk = "=2.2.2"
+solana-sanitize = { workspace = true }
+solana-sdk = { workspace = true }
 solana-serde-varint = "=2.2.1"
 solana-short-vec = "=2.2.1"
 solana-streamer = { workspace = true }
