@@ -1,15 +1,63 @@
 use {
+    qat_shim::qat::{self, Instance},
     solana_entry::entry,
     solana_ledger::{
         blockstore::{self, make_many_slot_entries, test_all_empty_or_min, Blockstore},
         get_tmp_ledger_path_auto_delete,
     },
     solana_sdk::hash::Hash,
-    std::{sync::Arc, thread::Builder},
+    std::{
+        sync::{mpsc::channel, Arc},
+        thread::Builder,
+    },
 };
+
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
 
 #[test]
 fn test_multiple_threads_insert_shred() {
+    let (tx_poll, poll, inst) = setup_qat();
     let ledger_path = get_tmp_ledger_path_auto_delete!();
     let blockstore = Arc::new(Blockstore::open(ledger_path.path()).unwrap());
 
@@ -52,10 +100,12 @@ fn test_multiple_threads_insert_shred() {
         // Delete slots for next iteration
         blockstore.purge_and_compact_slots(0, num_threads + 1);
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_purge_huge() {
+    let (tx_poll, poll, inst) = setup_qat();
     let ledger_path = get_tmp_ledger_path_auto_delete!();
     let blockstore = Blockstore::open(ledger_path.path()).unwrap();
 
@@ -64,4 +114,5 @@ fn test_purge_huge() {
 
     blockstore.purge_and_compact_slots(0, 4999);
     test_all_empty_or_min(&blockstore, 5000);
+    qat_tear_down(tx_poll, poll, inst);
 }

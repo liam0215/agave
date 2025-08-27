@@ -1,5 +1,6 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
+    qat_shim::qat::{self, Instance},
     solana_entry::entry::Entry,
     solana_ledger::shred::{
         max_entries_per_n_shred, verify_test_data_shred, ProcessShredsStats, ReedSolomonCache,
@@ -14,16 +15,60 @@ use {
     std::{
         collections::{BTreeMap, HashSet},
         convert::TryInto,
-        sync::Arc,
+        sync::{mpsc::channel, Arc},
     },
     test_case::test_case,
 };
 
 type IndexShredsMap = BTreeMap<u32, Vec<Shred>>;
 
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
+
 #[test_case(false)]
 #[test_case(true)]
 fn test_multi_fec_block_coding(is_last_in_slot: bool) {
+    let (tx_poll, poll, inst) = setup_qat();
     let keypair = Arc::new(Keypair::new());
     let slot = 0x1234_5678_9abc_def0;
     let shredder = Shredder::new(slot, slot - 5, 0, 0).unwrap();
@@ -114,10 +159,12 @@ fn test_multi_fec_block_coding(is_last_in_slot: bool) {
         Shredder::deshred(shreds).unwrap()
     };
     assert_eq!(serialized_entries[..], result[..serialized_entries.len()]);
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_multi_fec_block_different_size_coding() {
+    let (tx_poll, poll, inst) = setup_qat();
     let slot = 0x1234_5678_9abc_def0;
     let parent_slot = slot - 5;
     let keypair = Arc::new(Keypair::new());
@@ -154,6 +201,7 @@ fn test_multi_fec_block_different_size_coding() {
             );
         }
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 fn sort_data_coding_into_fec_sets(

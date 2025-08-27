@@ -1,6 +1,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
     log::*,
+    qat_shim::qat::{self, Instance},
     solana_bench_tps::{
         bench::{do_bench_tps, max_lamports_for_prioritization},
         cli::{self, ExternalClientType},
@@ -27,7 +28,7 @@ use {
         net::IpAddr,
         path::Path,
         process::exit,
-        sync::{Arc, RwLock},
+        sync::{mpsc::channel, Arc, RwLock},
     },
 };
 
@@ -168,6 +169,23 @@ fn create_client(
 fn main() {
     qat_shim::qat::start_session("SSL").expect("start session failed");
     qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
     solana_logger::setup_with_default_filter();
     solana_metrics::set_panic_hook("bench-tps", /*version:*/ None);
 
@@ -277,6 +295,13 @@ fn main() {
         None
     };
     do_bench_tps(client, cli_config, keypairs, nonce_keypairs);
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
     qat_shim::qat::stop_session().expect("stop session failed");
     qat_shim::qat::qae_mem_destroy();
 }

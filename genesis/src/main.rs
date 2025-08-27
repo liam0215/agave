@@ -6,6 +6,7 @@ use {
     base64::{prelude::BASE64_STANDARD, Engine},
     clap::{crate_description, crate_name, value_t, value_t_or_exit, App, Arg, ArgMatches},
     itertools::Itertools,
+    qat_shim::qat::{self, Instance},
     solana_accounts_db::hardened_unpack::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
     solana_clap_utils::{
         input_parsers::{
@@ -54,6 +55,7 @@ use {
         process,
         slice::Iter,
         str::FromStr,
+        sync::mpsc::channel,
         time::Duration,
     },
 };
@@ -303,6 +305,23 @@ fn rent_exempt_check(stake_lamports: u64, exempt: u64) -> io::Result<()> {
 fn main() -> Result<(), Box<dyn error::Error>> {
     qat_shim::qat::start_session("SSL").expect("start session failed");
     qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
     let default_faucet_pubkey = solana_cli_config::Config::default().keypair_path;
     let fee_rate_governor = FeeRateGovernor::default();
     let (
@@ -897,6 +916,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         LedgerColumnOptions::default(),
     )?;
 
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
     qat_shim::qat::stop_session().expect("stop session failed");
     qat_shim::qat::qae_mem_destroy();
     println!("{genesis_config}");
