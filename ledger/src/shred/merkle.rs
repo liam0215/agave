@@ -1433,7 +1433,7 @@ fn finish_erasure_batch(
         // if failed != 0 {
         //     println!("failed: {:?}", failed);
         // }
-        // debug_assert!(shred.verify(&keypair.pubkey()));
+        debug_assert!(shred.verify(&keypair.pubkey()));
         // println!("Verification passed");
         debug_assert_matches!(shred.sanitize(), Ok(()));
         // Assert that shred payload is fully populated.
