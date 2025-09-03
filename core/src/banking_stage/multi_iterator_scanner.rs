@@ -203,7 +203,54 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::channel;
+
+    use qat_shim::qat::{self, Instance};
+
     use super::*;
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     struct TestScannerPayload {
         locks: Vec<bool>,
@@ -223,13 +270,16 @@ mod tests {
 
     #[test]
     fn test_multi_iterator_scanner_empty() {
+        let (tx_poll, poll, inst) = setup_qat();
         let slice: Vec<i32> = vec![];
         let mut scanner = MultiIteratorScanner::new(&slice, 2, (), |_, _| ProcessingDecision::Now);
         assert!(scanner.iterate().is_none());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_multi_iterator_scanner_iterate() {
+        let (tx_poll, poll, inst) = setup_qat();
         let slice = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
         let should_process = |_item: &i32, _payload: &mut ()| ProcessingDecision::Now;
 
@@ -260,10 +310,12 @@ mod tests {
             vec![&11],
         ];
         assert_eq!(actual_batches, expected_batches);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_multi_iterator_scanner_iterate_with_gaps() {
+        let (tx_poll, poll, inst) = setup_qat();
         let slice = [0, 0, 0, 1, 2, 3, 1];
 
         let payload = TestScannerPayload {
@@ -299,10 +351,12 @@ mod tests {
         } = scanner.finalize();
         assert_eq!(locks, vec![false; 4]);
         assert!(already_handled.into_iter().all(|x| x));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_multi_iterator_scanner_iterate_conflicts_not_at_front() {
+        let (tx_poll, poll, inst) = setup_qat();
         let slice = [1, 2, 3, 0, 0, 0, 3, 2, 1];
 
         let payload = TestScannerPayload {
@@ -346,10 +400,12 @@ mod tests {
         } = scanner.finalize();
         assert_eq!(locks, vec![false; 4]);
         assert!(already_handled.into_iter().all(|x| x));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_multi_iterator_scanner_iterate_with_never_process() {
+        let (tx_poll, poll, inst) = setup_qat();
         let slice = [0, 4, 1, 2];
         let should_process = |item: &i32, _payload: &mut ()| match item {
             4 => ProcessingDecision::Never,
@@ -368,10 +424,12 @@ mod tests {
         //                    ^
         let expected_batches = vec![vec![&0, &1], vec![&2]];
         assert_eq!(actual_batches, expected_batches);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_multi_iterator_scanner_iterate_not_handled() {
+        let (tx_poll, poll, inst) = setup_qat();
         let slice = [0, 1, 2];
 
         // 0 and 2 will always be marked as later, and never actually handled
@@ -394,5 +452,6 @@ mod tests {
             already_handled, ..
         } = scanner.finalize();
         assert_eq!(already_handled, vec![false, true, false]);
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

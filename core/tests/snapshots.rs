@@ -5,6 +5,7 @@ use {
     crossbeam_channel::unbounded,
     itertools::Itertools,
     log::{info, trace},
+    qat_shim::qat::{self, Instance},
     solana_accounts_db::{
         accounts_db::{AccountsDbConfig, ACCOUNTS_DB_CONFIG_FOR_TESTING},
         epoch_accounts_hash::EpochAccountsHash,
@@ -49,6 +50,7 @@ use {
         path::PathBuf,
         sync::{
             atomic::{AtomicBool, Ordering},
+            mpsc::channel,
             Arc, Mutex, RwLock,
         },
         time::{Duration, Instant},
@@ -56,6 +58,49 @@ use {
     tempfile::TempDir,
     test_case::{test_case, test_matrix},
 };
+
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
 
 struct SnapshotTestConfig {
     bank_forks: Arc<RwLock<BankForks>>,
@@ -265,6 +310,7 @@ fn run_bank_forks_snapshot_n<F>(
 #[test_case(V1_2_0, Testnet)]
 #[test_case(V1_2_0, MainnetBeta)]
 fn test_bank_forks_snapshot(snapshot_version: SnapshotVersion, cluster_type: ClusterType) {
+    let (tx_poll, poll, inst) = setup_qat();
     // create banks up to slot 4 and create 1 new account in each bank. test that bank 4 snapshots
     // and restores correctly
     run_bank_forks_snapshot_n(
@@ -282,6 +328,7 @@ fn test_bank_forks_snapshot(snapshot_version: SnapshotVersion, cluster_type: Clu
         },
         1,
     );
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 fn goto_end_of_slot(bank: &Bank) {
@@ -301,6 +348,7 @@ fn goto_end_of_slot(bank: &Bank) {
 #[test_case(V1_2_0, Testnet)]
 #[test_case(V1_2_0, MainnetBeta)]
 fn test_slots_to_snapshot(snapshot_version: SnapshotVersion, cluster_type: ClusterType) {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
     let num_set_roots = MAX_CACHE_ENTRIES * 2;
 
@@ -371,6 +419,7 @@ fn test_slots_to_snapshot(snapshot_version: SnapshotVersion, cluster_type: Clust
             .sorted();
         assert!(slots_to_snapshot.into_iter().eq(expected_slots_to_snapshot));
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test_case(V1_2_0, Development)]
@@ -381,6 +430,7 @@ fn test_bank_forks_status_cache_snapshot(
     snapshot_version: SnapshotVersion,
     cluster_type: ClusterType,
 ) {
+    let (tx_poll, poll, inst) = setup_qat();
     // create banks up to slot (MAX_CACHE_ENTRIES * 2) + 1 while transferring 1 lamport into 2 different accounts each time
     // this is done to ensure the AccountStorageEntries keep getting cleaned up as the root moves
     // ahead. Also tests the status_cache purge and status cache snapshotting.
@@ -412,6 +462,7 @@ fn test_bank_forks_status_cache_snapshot(
             *set_root_interval,
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test_case(V1_2_0, Development)]
@@ -422,6 +473,7 @@ fn test_bank_forks_incremental_snapshot(
     snapshot_version: SnapshotVersion,
     cluster_type: ClusterType,
 ) {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     const SET_ROOT_INTERVAL: Slot = 2;
@@ -549,6 +601,7 @@ fn test_bank_forks_incremental_snapshot(
             .unwrap();
         }
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 fn make_full_snapshot_archive(

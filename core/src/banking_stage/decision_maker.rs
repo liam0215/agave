@@ -141,19 +141,64 @@ mod tests {
     use {
         super::*,
         core::panic,
+        qat_shim::qat::{self, Instance},
         solana_ledger::{blockstore::Blockstore, genesis_utils::create_genesis_config},
         solana_poh::poh_recorder::create_test_recorder,
         solana_runtime::bank::Bank,
         solana_sdk::clock::NUM_CONSECUTIVE_LEADER_SLOTS,
         std::{
             env::temp_dir,
-            sync::{atomic::Ordering, Arc},
+            sync::{atomic::Ordering, mpsc::channel, Arc},
             time::Instant,
         },
     };
 
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
+
     #[test]
     fn test_buffered_packet_decision_bank_start() {
+        let (tx_poll, poll, inst) = setup_qat();
         let bank = Arc::new(Bank::default_for_tests());
         let bank_start = BankStart {
             working_bank: bank,
@@ -167,10 +212,12 @@ mod tests {
             .bank_start()
             .is_none());
         assert!(BufferedPacketsDecision::Hold.bank_start().is_none());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_make_consume_or_forward_decision() {
+        let (tx_poll, poll, inst) = setup_qat();
         let genesis_config = create_genesis_config(2).genesis_config;
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
         let ledger_path = temp_dir();
@@ -237,10 +284,12 @@ mod tests {
             let decision = decision_maker.make_consume_or_forward_decision_no_cache();
             assert_matches!(decision, BufferedPacketsDecision::Forward);
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_should_process_or_forward_packets() {
+        let (tx_poll, poll, inst) = setup_qat();
         let my_pubkey = solana_pubkey::new_rand();
         let my_pubkey1 = solana_pubkey::new_rand();
         let bank = Arc::new(Bank::default_for_tests());
@@ -314,5 +363,6 @@ mod tests {
             ),
             BufferedPacketsDecision::Hold
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

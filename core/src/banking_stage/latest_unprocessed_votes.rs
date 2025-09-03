@@ -521,6 +521,7 @@ mod tests {
     use {
         super::*,
         itertools::Itertools,
+        qat_shim::qat::{self, Instance},
         rand::{thread_rng, Rng},
         solana_perf::packet::{Packet, PacketBatch, PacketFlags},
         solana_runtime::{
@@ -535,8 +536,54 @@ mod tests {
         solana_vote_program::{
             vote_state::TowerSync, vote_transaction::new_tower_sync_transaction,
         },
-        std::{sync::Arc, thread::Builder},
+        std::{
+            sync::{mpsc::channel, Arc},
+            thread::Builder,
+        },
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     fn from_slots(
         slots: Vec<(u64, u32)>,
@@ -575,6 +622,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_vote_packets() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypairs = ValidatorVoteKeypairs::new_rand();
         let blockhash = Hash::new_unique();
         let switch_proof = Hash::new_unique();
@@ -645,10 +693,12 @@ mod tests {
 
         assert!(deserialized_packets[0].vote.is_some());
         assert!(deserialized_packets[1].vote.is_some());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_latest_vote() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypair_a = ValidatorVoteKeypairs::new_rand();
         let keypair_b = ValidatorVoteKeypairs::new_rand();
         let latest_unprocessed_votes = LatestUnprocessedVotes::new_for_tests(&[
@@ -849,10 +899,12 @@ mod tests {
         latest_unprocessed_votes.update_latest_vote(vote_a, true /* should replenish */);
         latest_unprocessed_votes.update_latest_vote(vote_b, true /* should replenish */);
         assert_eq!(0, latest_unprocessed_votes.len());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_latest_vote_race() {
+        let (tx_poll, poll, inst) = setup_qat();
         // There was a race condition in updating the same pubkey in the hashmap
         // when the entry does not initially exist.
         const NUM_VOTES: usize = 100;
@@ -894,10 +946,12 @@ mod tests {
 
         hdl.join().unwrap();
         assert_eq!(NUM_VOTES, latest_unprocessed_votes.len());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_simulate_threads() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypairs = Arc::new(
             (0..10)
                 .map(|_| ValidatorVoteKeypairs::new_rand())
@@ -964,10 +1018,12 @@ mod tests {
             .unwrap();
         gossip.join().unwrap();
         tpu.join().unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_forwardable_packets() {
+        let (tx_poll, poll, inst) = setup_qat();
         let latest_unprocessed_votes = LatestUnprocessedVotes::new_for_tests(&[]);
         let bank_0 = Bank::new_for_tests(&GenesisConfig::default());
         let mut bank = Bank::new_from_parent(
@@ -1083,10 +1139,12 @@ mod tests {
                 .filter(|&batch| !batch.is_empty())
                 .count()
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_clear_forwarded_packets() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypair_a = ValidatorVoteKeypairs::new_rand();
         let keypair_b = ValidatorVoteKeypairs::new_rand();
         let keypair_c = ValidatorVoteKeypairs::new_rand();
@@ -1129,10 +1187,12 @@ mod tests {
             Some(4),
             latest_unprocessed_votes.get_latest_vote_slot(keypair_d.vote_keypair.pubkey())
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_insert_batch_unstaked() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypair_a = ValidatorVoteKeypairs::new_rand();
         let keypair_b = ValidatorVoteKeypairs::new_rand();
         let keypair_c = ValidatorVoteKeypairs::new_rand();
@@ -1210,5 +1270,6 @@ mod tests {
             latest_unprocessed_votes.get_latest_vote_slot(keypair_c.vote_keypair.pubkey()),
             Some(vote_c.slot())
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

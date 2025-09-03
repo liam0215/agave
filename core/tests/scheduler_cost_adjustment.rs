@@ -1,6 +1,7 @@
 #![cfg(test)]
 use {
     agave_feature_set as feature_set,
+    qat_shim::qat::{self, Instance},
     solana_compute_budget::compute_budget_limits::{
         DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT,
     },
@@ -24,8 +25,51 @@ use {
     },
     solana_svm::transaction_processor::ExecutionRecordingConfig,
     solana_timings::ExecuteTimings,
-    std::sync::{Arc, RwLock},
+    std::sync::{mpsc::channel, Arc, RwLock},
 };
+
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
 
 #[derive(Debug, Eq, PartialEq)]
 struct TestResult {
@@ -174,6 +218,7 @@ impl TestSetup {
 
 #[test]
 fn test_builtin_ix_cost_adjustment_with_cu_limit_too_low() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     let cu_limit = 1;
 
@@ -221,10 +266,12 @@ fn test_builtin_ix_cost_adjustment_with_cu_limit_too_low() {
             )
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_builtin_ix_cost_adjustment_with_cu_limit_high() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     let cu_limit: u32 = 500_000;
 
@@ -268,10 +315,12 @@ fn test_builtin_ix_cost_adjustment_with_cu_limit_high() {
             )
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_builtin_ix_cost_adjustment_with_memo_no_cu_limit() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     test_setup.install_memo_program_account();
     let (memo_ix, memo_ix_cost) = test_setup.memo_ix();
@@ -318,10 +367,12 @@ fn test_builtin_ix_cost_adjustment_with_memo_no_cu_limit() {
             )
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_builtin_ix_cost_adjustment_with_memo_and_cu_limit() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     test_setup.install_memo_program_account();
     let (memo_ix, memo_ix_cost) = test_setup.memo_ix();
@@ -369,10 +420,12 @@ fn test_builtin_ix_cost_adjustment_with_memo_and_cu_limit() {
             )
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_builtin_ix_cost_adjustment_with_alt_no_cu_limit() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
 
     // A address-lookup-table ix only, that CPIs into System instructions
@@ -413,10 +466,12 @@ fn test_builtin_ix_cost_adjustment_with_alt_no_cu_limit() {
             )
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_builtin_ix_cost_adjustment_with_alt_and_cu_limit_high() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     let cu_limit = 500_000;
     let tx_execution_cost = solana_address_lookup_table_program::processor::DEFAULT_COMPUTE_UNITS
@@ -464,10 +519,12 @@ fn test_builtin_ix_cost_adjustment_with_alt_and_cu_limit_high() {
             )
         );
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_builtin_ix_set_cu_price_only() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     let mut cu_price = 1;
 
@@ -510,11 +567,13 @@ fn test_builtin_ix_set_cu_price_only() {
         );
         cu_price += 1;
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[allow(clippy::explicit_counter_loop)]
 #[test]
 fn test_builtin_ix_precompiled() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut test_setup = TestSetup::new();
     let data = [0_u8, 1_u8];
     let mut index = 0;
@@ -558,4 +617,5 @@ fn test_builtin_ix_precompiled() {
         );
         index += 1;
     }
+    qat_tear_down(tx_poll, poll, inst);
 }

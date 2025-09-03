@@ -75,9 +75,56 @@
 
 extern crate rand;
 use {
+    qat_shim::qat::{self, Instance},
     rand::{thread_rng, Rng},
-    std::collections::{HashMap, VecDeque},
+    std::{
+        collections::{HashMap, VecDeque},
+        sync::mpsc::channel,
+    },
 };
+
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
 
 #[derive(Clone, Default, Debug, Hash, Eq, PartialEq)]
 pub struct Fork {
@@ -334,37 +381,46 @@ impl Tower {
 
 #[test]
 fn test_is_trunk_of_1() {
+    let (tx_poll, poll, inst) = setup_qat();
     let tree = HashMap::new();
     let b1 = Fork { id: 1, base: 0 };
     let b2 = Fork { id: 2, base: 0 };
     assert!(!b1.is_trunk_of(&b2, &tree));
+    qat_tear_down(tx_poll, poll, inst);
 }
 #[test]
 fn test_is_trunk_of_2() {
+    let (tx_poll, poll, inst) = setup_qat();
     let tree = HashMap::new();
     let b1 = Fork { id: 1, base: 0 };
     let b2 = Fork { id: 0, base: 0 };
     assert!(!b1.is_trunk_of(&b2, &tree));
+    qat_tear_down(tx_poll, poll, inst);
 }
 #[test]
 fn test_is_trunk_of_3() {
+    let (tx_poll, poll, inst) = setup_qat();
     let tree = HashMap::new();
     let b1 = Fork { id: 1, base: 0 };
     let b2 = Fork { id: 1, base: 0 };
     assert!(b1.is_trunk_of(&b2, &tree));
+    qat_tear_down(tx_poll, poll, inst);
 }
 #[test]
 fn test_is_trunk_of_4() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut tree = HashMap::new();
     let b1 = Fork { id: 1, base: 0 };
     let b2 = Fork { id: 2, base: 1 };
     tree.insert(b1.id, b1.clone());
     assert!(b1.is_trunk_of(&b2, &tree));
     assert!(!b2.is_trunk_of(&b1, &tree));
+    qat_tear_down(tx_poll, poll, inst);
 }
 #[test]
 #[allow(clippy::cognitive_complexity)]
 fn test_push_vote() {
+    let (tx_poll, poll, inst) = setup_qat();
     let tree = HashMap::new();
     let bmap = HashMap::new();
     let b0 = Fork { id: 0, base: 0 };
@@ -416,6 +472,7 @@ fn test_push_vote() {
     assert_eq!(tower.votes.len(), 2);
     assert_eq!(tower.votes[0].lockout, 2);
     assert_eq!(tower.votes[1].lockout, 16);
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 fn create_towers(sz: usize, height: usize, delay_count: usize) -> Vec<Tower> {
@@ -471,6 +528,7 @@ fn calc_tip_converged(towers: &[Tower], bmap: &HashMap<usize, usize>) -> usize {
 }
 #[test]
 fn test_no_partitions() {
+    let (tx_poll, poll, inst) = setup_qat();
     let mut tree = HashMap::new();
     let len = 100;
     let mut towers = create_towers(len, 32, 0);
@@ -493,6 +551,7 @@ fn test_no_partitions() {
     }
     let bmap = calc_fork_map(&towers, &tree);
     assert_eq!(calc_tip_converged(&towers, &bmap), len);
+    qat_tear_down(tx_poll, poll, inst);
 }
 /// * num_partitions - 1 to 100 partitions
 /// * fail_rate - 0 to 1.0 rate of packet receive failure
@@ -589,15 +648,24 @@ fn test_with_partitions(
 #[test]
 #[ignore]
 fn test_3_partitions() {
-    test_with_partitions(3, 0.0, 0, 0.0, true)
+    let (tx_poll, poll, inst) = setup_qat();
+    let r = test_with_partitions(3, 0.0, 0, 0.0, true);
+    qat_tear_down(tx_poll, poll, inst);
+    r
 }
 #[test]
 #[ignore]
 fn test_3_partitions_large_packet_drop() {
-    test_with_partitions(3, 0.9, 0, 0.0, false)
+    let (tx_poll, poll, inst) = setup_qat();
+    let r = test_with_partitions(3, 0.9, 0, 0.0, false);
+    qat_tear_down(tx_poll, poll, inst);
+    r
 }
 #[test]
 #[ignore]
 fn test_all_partitions() {
-    test_with_partitions(100, 0.0, 5, 0.25, false)
+    let (tx_poll, poll, inst) = setup_qat();
+    let r = test_with_partitions(100, 0.0, 5, 0.25, false);
+    qat_tear_down(tx_poll, poll, inst);
+    r
 }
