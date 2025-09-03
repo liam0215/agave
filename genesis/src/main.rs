@@ -309,19 +309,19 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     inst.set_address_translation()
         .expect("set address translation failed");
     inst.start().expect("start instance failed");
-    let (tx_poll, poll) = if inst.is_polled().unwrap() {
-        let (tx, rx) = channel();
-        let inst2 = inst.clone();
-        let poll = std::thread::spawn(move || {
-            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                let _ = inst2.clone().poll_once();
-            }
-            println!("Polling thread exiting");
-        });
-        (Some(tx), Some(poll))
-    } else {
-        (None, None)
-    };
+    // let (tx_poll, poll) = if inst.is_polled().unwrap() {
+    //     let (tx, rx) = channel();
+    //     let inst2 = inst.clone();
+    //     let poll = std::thread::spawn(move || {
+    //         while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+    //             let _ = inst2.clone().poll_once();
+    //         }
+    //         println!("Polling thread exiting");
+    //     });
+    //     (Some(tx), Some(poll))
+    // } else {
+    //     (None, None)
+    // };
     let default_faucet_pubkey = solana_cli_config::Config::default().keypair_path;
     let fee_rate_governor = FeeRateGovernor::default();
     let (
@@ -916,12 +916,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         LedgerColumnOptions::default(),
     )?;
 
-    if let Some(tx_poll) = tx_poll {
-        tx_poll
-            .send(())
-            .expect("Failed to send stop signal to polling thread");
-        poll.unwrap().join().expect("Polling thread panicked");
-    }
+    // if let Some(tx_poll) = tx_poll {
+    //     tx_poll
+    //         .send(())
+    //         .expect("Failed to send stop signal to polling thread");
+    //     poll.unwrap().join().expect("Polling thread panicked");
+    // }
     inst.stop().expect("stop instance failed");
     qat_shim::qat::stop_session().expect("stop session failed");
     qat_shim::qat::qae_mem_destroy();

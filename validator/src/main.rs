@@ -173,19 +173,19 @@ pub fn main() {
     inst.set_address_translation()
         .expect("set address translation failed");
     inst.start().expect("start instance failed");
-    let (tx_poll, poll) = if inst.is_polled().unwrap() {
-        let (tx, rx) = channel();
-        let inst2 = inst.clone();
-        let poll = std::thread::spawn(move || {
-            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                let _ = inst2.clone().poll_once();
-            }
-            println!("Polling thread exiting");
-        });
-        (Some(tx), Some(poll))
-    } else {
-        (None, None)
-    };
+    // let (tx_poll, poll) = if inst.is_polled().unwrap() {
+    //     let (tx, rx) = channel();
+    //     let inst2 = inst.clone();
+    //     let poll = std::thread::spawn(move || {
+    //         while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+    //             let _ = inst2.clone().poll_once();
+    //         }
+    //         println!("Polling thread exiting");
+    //     });
+    //     (Some(tx), Some(poll))
+    // } else {
+    //     (None, None)
+    // };
     let default_args = DefaultArgs::new();
     let solana_version = solana_version::version!();
     let cli_app = app(solana_version, &default_args);
@@ -1529,12 +1529,12 @@ pub fn main() {
     }
     info!("Validator initialized");
     validator.join();
-    if let Some(tx_poll) = tx_poll {
-        tx_poll
-            .send(())
-            .expect("Failed to send stop signal to polling thread");
-        poll.unwrap().join().expect("Polling thread panicked");
-    }
+    // if let Some(tx_poll) = tx_poll {
+    //     tx_poll
+    //         .send(())
+    //         .expect("Failed to send stop signal to polling thread");
+    //     poll.unwrap().join().expect("Polling thread panicked");
+    // }
     inst.stop().expect("stop instance failed");
     qat_shim::qat::stop_session().expect("stop session failed");
     qat_shim::qat::qae_mem_destroy();
