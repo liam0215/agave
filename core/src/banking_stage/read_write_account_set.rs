@@ -80,6 +80,7 @@ impl ReadWriteAccountSet {
 mod tests {
     use {
         super::ReadWriteAccountSet,
+        qat_shim::qat::{self, Instance},
         solana_ledger::genesis_utils::GenesisConfigInfo,
         solana_runtime::{bank::Bank, bank_forks::BankForks, genesis_utils::create_genesis_config},
         solana_sdk::{
@@ -100,9 +101,52 @@ mod tests {
         },
         std::{
             borrow::Cow,
-            sync::{Arc, RwLock},
+            sync::{mpsc::channel, Arc, RwLock},
         },
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     fn create_test_versioned_message(
         write_keys: &[Pubkey],
@@ -210,68 +254,85 @@ mod tests {
 
     #[test]
     fn test_check_and_take_locks_write_write_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         test_check_and_take_locks(0, true, false); // static key conflict
         test_check_and_take_locks(2, true, false); // lookup key conflict
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_check_and_take_locks_read_write_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         test_check_and_take_locks(0, false, false); // static key conflict
         test_check_and_take_locks(2, false, false); // lookup key conflict
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_check_and_take_locks_write_read_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         test_check_and_take_locks(1, true, false); // static key conflict
         test_check_and_take_locks(3, true, false); // lookup key conflict
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_check_and_take_locks_read_read_non_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         test_check_and_take_locks(1, false, true); // static key conflict
         test_check_and_take_locks(3, false, true); // lookup key conflict
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     pub fn test_write_write_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut account_locks = ReadWriteAccountSet::default();
         let account = Pubkey::new_unique();
         assert!(account_locks.can_write(&account));
         account_locks.add_write(&account);
         assert!(!account_locks.can_write(&account));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     pub fn test_read_write_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut account_locks = ReadWriteAccountSet::default();
         let account = Pubkey::new_unique();
         assert!(account_locks.can_read(&account));
         account_locks.add_read(&account);
         assert!(!account_locks.can_write(&account));
         assert!(account_locks.can_read(&account));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     pub fn test_write_read_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut account_locks = ReadWriteAccountSet::default();
         let account = Pubkey::new_unique();
         assert!(account_locks.can_write(&account));
         account_locks.add_write(&account);
         assert!(!account_locks.can_write(&account));
         assert!(!account_locks.can_read(&account));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     pub fn test_read_read_non_conflict() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut account_locks = ReadWriteAccountSet::default();
         let account = Pubkey::new_unique();
         assert!(account_locks.can_read(&account));
         account_locks.add_read(&account);
         assert!(account_locks.can_read(&account));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     pub fn test_write_write_different_keys() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut account_locks = ReadWriteAccountSet::default();
         let account1 = Pubkey::new_unique();
         let account2 = Pubkey::new_unique();
@@ -279,5 +340,6 @@ mod tests {
         account_locks.add_write(&account1);
         assert!(account_locks.can_write(&account2));
         assert!(account_locks.can_read(&account2));
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

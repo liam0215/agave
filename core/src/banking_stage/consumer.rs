@@ -861,6 +861,7 @@ mod tests {
         },
         agave_reserved_account_keys::ReservedAccountKeys,
         crossbeam_channel::{unbounded, Receiver},
+        qat_shim::qat::{self, Instance},
         solana_cost_model::{cost_model::CostModel, transaction_cost::TransactionCost},
         solana_entry::entry::{next_entry, next_versioned_entry},
         solana_ledger::{
@@ -910,6 +911,7 @@ mod tests {
             path::Path,
             sync::{
                 atomic::{AtomicBool, AtomicU64},
+                mpsc::channel,
                 RwLock,
             },
             thread::{Builder, JoinHandle},
@@ -917,6 +919,49 @@ mod tests {
         },
         transaction::MessageHash,
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     fn execute_transactions_with_dummy_poh_service(
         bank: Arc<Bank>,
@@ -1082,6 +1127,7 @@ mod tests {
 
     #[test]
     fn test_bank_process_and_record_transactions() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1216,10 +1262,12 @@ mod tests {
             assert_eq!(bank.get_balance(&pubkey), 1);
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_bank_nonce_update_blockhash_queried_before_transaction_record() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1379,10 +1427,12 @@ mod tests {
             assert!(verify_nonce_account(&nonce_account, expected_nonce_hash).is_some());
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_bank_process_and_record_transactions_all_unexecuted() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1464,10 +1514,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_bank_process_and_record_transactions_cost_tracker() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1622,10 +1674,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_bank_process_and_record_transactions_account_in_use() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1703,10 +1757,12 @@ mod tests {
             assert!(commit_transactions_result.is_ok());
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_process_transactions_instruction_error() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let lamports = 10_000;
         let GenesisConfigInfo {
@@ -1767,10 +1823,12 @@ mod tests {
             retryable_transaction_indexes,
             (1..transactions_len - 1).collect::<Vec<usize>>()
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_process_transactions_account_in_use() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1828,10 +1886,12 @@ mod tests {
             retryable_transaction_indexes,
             (1..transactions_len - 1).collect::<Vec<usize>>()
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_process_transactions_returns_unprocessed_txs() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -1909,10 +1969,12 @@ mod tests {
         }
 
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_write_persist_transaction_status() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             mut genesis_config,
@@ -2043,10 +2105,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_write_persist_loaded_addresses() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             genesis_config,
@@ -2188,10 +2252,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_consume_buffered_packets() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         {
             let (transactions, bank, _bank_forks, poh_recorder, _entry_receiver, _, poh_simulator) =
@@ -2261,10 +2327,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_consume_buffered_packets_sanitization_error() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         {
             let (
@@ -2324,10 +2392,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_consume_buffered_packets_retryable() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         {
             let (transactions, bank, _bank_forks, poh_recorder, _entry_receiver, _, poh_simulator) =
@@ -2420,10 +2490,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_consume_buffered_packets_batch_priority_guard() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         {
             let (
@@ -2530,10 +2602,12 @@ mod tests {
             let _ = poh_simulator.join();
         }
         Blockstore::destroy(ledger_path.path()).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_accumulate_execute_units_and_time() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut execute_timings = ExecuteTimings::default();
         let mut expected_units = 0;
         let mut expected_us = 0;
@@ -2557,10 +2631,12 @@ mod tests {
 
         assert_eq!(expected_units, units);
         assert_eq!(expected_us, us);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_bank_prepare_filter_for_pending_transaction() {
+        let (tx_poll, poll, inst) = setup_qat();
         assert_eq!(
             Consumer::prepare_filter_for_pending_transactions(6, &[2, 4, 5]),
             vec![
@@ -2584,10 +2660,12 @@ mod tests {
                 Err(TransactionError::BlockhashNotFound),
             ]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_bank_filter_valid_transaction_indexes() {
+        let (tx_poll, poll, inst) = setup_qat();
         assert_eq!(
             Consumer::filter_valid_transaction_indexes(&[
                 Err(TransactionError::BlockhashNotFound),
@@ -2611,5 +2689,6 @@ mod tests {
             ]),
             [0, 3, 4, 5]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

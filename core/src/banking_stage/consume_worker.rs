@@ -741,6 +741,7 @@ mod tests {
             tests::{create_slow_genesis_config, sanitize_transactions, simulate_poh},
         },
         crossbeam_channel::unbounded,
+        qat_shim::qat::{self, Instance},
         solana_ledger::{
             blockstore::Blockstore, genesis_utils::GenesisConfigInfo,
             get_tmp_ledger_path_auto_delete, leader_schedule_cache::LeaderScheduleCache,
@@ -771,11 +772,54 @@ mod tests {
         solana_svm_transaction::svm_message::SVMMessage,
         std::{
             collections::HashSet,
-            sync::{atomic::AtomicBool, RwLock},
+            sync::{atomic::AtomicBool, mpsc::channel, RwLock},
             thread::JoinHandle,
         },
         tempfile::TempDir,
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     // Helper struct to create tests that hold channels, files, etc.
     // such that our tests can be more easily set up and run.
@@ -867,6 +911,7 @@ mod tests {
 
     #[test]
     fn test_worker_consume_no_bank() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (test_frame, worker) = setup_test_frame();
         let TestFrame {
             mint_keypair,
@@ -907,10 +952,12 @@ mod tests {
 
         drop(test_frame);
         let _ = worker_thread.join().unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_worker_consume_simple() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (test_frame, worker) = setup_test_frame();
         let TestFrame {
             mint_keypair,
@@ -956,10 +1003,12 @@ mod tests {
 
         drop(test_frame);
         let _ = worker_thread.join().unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_worker_consume_self_conflicting() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (test_frame, worker) = setup_test_frame();
         let TestFrame {
             mint_keypair,
@@ -1008,10 +1057,12 @@ mod tests {
 
         drop(test_frame);
         let _ = worker_thread.join().unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_worker_consume_multiple_messages() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (test_frame, worker) = setup_test_frame();
         let TestFrame {
             mint_keypair,
@@ -1083,10 +1134,12 @@ mod tests {
 
         drop(test_frame);
         let _ = worker_thread.join().unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_worker_ttl() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (test_frame, worker) = setup_test_frame();
         let TestFrame {
             mint_keypair,
@@ -1240,5 +1293,6 @@ mod tests {
 
         drop(test_frame);
         let _ = worker_thread.join().unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

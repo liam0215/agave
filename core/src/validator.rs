@@ -2785,6 +2785,7 @@ mod tests {
     use {
         super::*,
         crossbeam_channel::{bounded, RecvTimeoutError},
+        qat_shim::qat::{self, Instance},
         solana_entry::entry,
         solana_gossip::contact_info::ContactInfo,
         solana_ledger::{
@@ -2793,11 +2794,60 @@ mod tests {
         },
         solana_sdk::{genesis_config::create_genesis_config, poh_config::PohConfig},
         solana_tpu_client::tpu_client::DEFAULT_TPU_ENABLE_UDP,
-        std::{fs::remove_dir_all, thread, time::Duration},
+        std::{
+            fs::remove_dir_all,
+            sync::{mpsc::channel, Arc},
+            thread,
+            time::Duration,
+        },
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     #[test]
     fn validator_exit() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let leader_keypair = Keypair::new();
         let leader_node = Node::new_localhost_with_pubkey(&leader_keypair.pubkey());
@@ -2840,10 +2890,12 @@ mod tests {
         );
         validator.close();
         remove_dir_all(validator_ledger_path).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_should_cleanup_blockstore_incorrect_shred_versions() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
 
         let ledger_path = get_tmp_ledger_path_auto_delete!();
@@ -2976,10 +3028,12 @@ mod tests {
             .unwrap(),
             None,
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_cleanup_blockstore_incorrect_shred_versions() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
 
         let validator_config = ValidatorConfig::default_for_test();
@@ -3009,10 +3063,12 @@ mod tests {
                 .unwrap()
                 .is_empty());
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn validator_parallel_exit() {
+        let (tx_poll, poll, inst) = setup_qat();
         let leader_keypair = Keypair::new();
         let leader_node = Node::new_localhost_with_pubkey(&leader_keypair.pubkey());
         let genesis_config =
@@ -3073,10 +3129,12 @@ mod tests {
         for path in ledger_paths {
             remove_dir_all(path).unwrap();
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_wait_for_supermajority() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         use solana_sdk::hash::hash;
         let node_keypair = Arc::new(Keypair::new());
@@ -3147,10 +3205,12 @@ mod tests {
             ),
             Err(ValidatorError::BadExpectedBankHash),
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_interval_check() {
+        let (tx_poll, poll, inst) = setup_qat();
         fn new_snapshot_config(
             full_snapshot_archive_interval_slots: Slot,
             incremental_snapshot_archive_interval_slots: Slot,
@@ -3245,6 +3305,7 @@ mod tests {
             },
             100
         ));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     fn target_tick_duration() -> Duration {
@@ -3263,6 +3324,7 @@ mod tests {
 
     #[test]
     fn test_poh_speed() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let poh_config = PohConfig {
             target_tick_duration: target_tick_duration(),
@@ -3276,10 +3338,12 @@ mod tests {
         };
         let bank = Bank::new_for_tests(&genesis_config);
         assert!(check_poh_speed(&bank, Some(10_000)).is_err());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_poh_speed_no_hashes_per_tick() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let poh_config = PohConfig {
             target_tick_duration: target_tick_duration(),
@@ -3292,5 +3356,6 @@ mod tests {
         };
         let bank = Bank::new_for_tests(&genesis_config);
         check_poh_speed(&bank, Some(10_000)).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

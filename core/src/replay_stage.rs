@@ -4300,6 +4300,7 @@ pub(crate) mod tests {
         },
         crossbeam_channel::unbounded,
         itertools::Itertools,
+        qat_shim::qat::{self, Instance},
         solana_client::connection_cache::ConnectionCache,
         solana_entry::entry::{self, Entry},
         solana_gossip::{cluster_info::Node, crds::Cursor},
@@ -4340,12 +4341,55 @@ pub(crate) mod tests {
         std::{
             fs::remove_dir_all,
             iter,
-            sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
+            sync::{atomic::AtomicU64, mpsc::channel, Arc, Mutex, RwLock},
         },
         tempfile::tempdir,
         test_case::test_case,
         trees::{tr, Tree},
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     fn new_bank_from_parent_with_bank_forks(
         bank_forks: &RwLock<BankForks>,
@@ -4364,6 +4408,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_is_partition_detected() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (VoteSimulator { bank_forks, .. }, _) = setup_default_forks(1, None::<GenerateVotes>);
         let ancestors = bank_forks.read().unwrap().ancestors();
         // Last vote 1 is an ancestor of the heaviest slot 3, no partition
@@ -4376,6 +4421,7 @@ pub(crate) mod tests {
         // Last vote 4 is not an ancestor of the heaviest slot 3,
         // partition detected!
         assert!(ReplayStage::is_partition_detected(&ancestors, 4, 3));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     pub struct ReplayBlockstoreComponents {
@@ -4488,6 +4534,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_child_slots_of_same_parent() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ReplayBlockstoreComponents {
             blockstore,
             validator_node_to_vote_keys,
@@ -4608,10 +4655,12 @@ pub(crate) mod tests {
                 .propagated_validators
                 .contains(vote_key));
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_handle_new_root() {
+        let (tx_poll, poll, inst) = setup_qat();
         let genesis_config = create_genesis_config(10_000).genesis_config;
         let bank0 = Bank::new_for_tests(&genesis_config);
         let bank_forks = BankForks::new_rw_arc(bank0);
@@ -4694,10 +4743,12 @@ pub(crate) mod tests {
             epoch_slots_frozen_slots.into_keys().collect::<Vec<Slot>>(),
             vec![root, root + 1]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_handle_new_root_ahead_of_highest_super_majority_root() {
+        let (tx_poll, poll, inst) = setup_qat();
         let genesis_config = create_genesis_config(10_000).genesis_config;
         let bank0 = Bank::new_for_tests(&genesis_config);
         let bank_forks = BankForks::new_rw_arc(bank0);
@@ -4753,10 +4804,12 @@ pub(crate) mod tests {
         assert!(progress.get(&root).is_some());
         assert!(progress.get(&confirmed_root).is_some());
         assert!(progress.get(&fork).is_none());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_transaction_error() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypair1 = Keypair::new();
         let keypair2 = Keypair::new();
         let missing_keypair = Keypair::new();
@@ -4795,10 +4848,12 @@ pub(crate) mod tests {
                 TransactionError::AccountNotFound
             ))
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_entry_verification_failure() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypair2 = Keypair::new();
         let res = check_dead_fork(|genesis_keypair, bank| {
             let blockhash = bank.last_blockhash();
@@ -4831,10 +4886,12 @@ pub(crate) mod tests {
         } else {
             panic!();
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_invalid_tick_hash_count() {
+        let (tx_poll, poll, inst) = setup_qat();
         let res = check_dead_fork(|_keypair, bank| {
             let blockhash = bank.last_blockhash();
             let slot = bank.slot();
@@ -4857,10 +4914,12 @@ pub(crate) mod tests {
         } else {
             panic!();
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_invalid_slot_tick_count() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         // Too many ticks per slot
         let res = check_dead_fork(|_keypair, bank| {
@@ -4903,10 +4962,12 @@ pub(crate) mod tests {
         } else {
             panic!();
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_invalid_last_tick() {
+        let (tx_poll, poll, inst) = setup_qat();
         let res = check_dead_fork(|_keypair, bank| {
             let blockhash = bank.last_blockhash();
             let slot = bank.slot();
@@ -4926,10 +4987,12 @@ pub(crate) mod tests {
         } else {
             panic!();
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_trailing_entry() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypair = Keypair::new();
         let res = check_dead_fork(|funded_keypair, bank| {
             let blockhash = bank.last_blockhash();
@@ -4956,10 +5019,12 @@ pub(crate) mod tests {
         } else {
             panic!();
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dead_fork_entry_deserialize_failure() {
+        let (tx_poll, poll, inst) = setup_qat();
         // Insert entry that causes deserialization failure
         let res = check_dead_fork(|_, bank| {
             let gibberish = [0xa5u8; LEGACY_SHRED_DATA_CAPACITY];
@@ -4983,6 +5048,7 @@ pub(crate) mod tests {
                 BlockstoreError::InvalidShredData(_)
             ),)
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     struct SlotStatusNotifierForTest {
@@ -5122,6 +5188,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_replay_commitment_cache() {
+        let (tx_poll, poll, inst) = setup_qat();
         fn leader_vote(vote_slot: Slot, bank: &Bank, pubkey: &Pubkey) -> (Pubkey, TowerVoteState) {
             let mut leader_vote_account = bank.get_account(pubkey).unwrap();
             let mut vote_state = vote_state::from(&leader_vote_account).unwrap();
@@ -5250,10 +5317,12 @@ pub(crate) mod tests {
                 .unwrap(),
             &expected2
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_write_persist_transaction_status() {
+        let (tx_poll, poll, inst) = setup_qat();
         let GenesisConfigInfo {
             mut genesis_config,
             mint_keypair,
@@ -5321,10 +5390,12 @@ pub(crate) mod tests {
             assert!(test_signatures_iter.next().is_none());
         }
         Blockstore::destroy(&ledger_path).unwrap();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_compute_bank_stats_confirmed() {
+        let (tx_poll, poll, inst) = setup_qat();
         let vote_keypairs = ValidatorVoteKeypairs::new_rand();
         let my_node_pubkey = vote_keypairs.node_keypair.pubkey();
         let my_vote_pubkey = vote_keypairs.vote_keypair.pubkey();
@@ -5458,10 +5529,12 @@ pub(crate) mod tests {
         );
         // No new stats should have been computed
         assert!(newly_computed.is_empty());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_same_weight_select_lower_slot() {
+        let (tx_poll, poll, inst) = setup_qat();
         // Init state
         let mut vote_simulator = VoteSimulator::new(1);
         let mut tower = Tower::default();
@@ -5517,10 +5590,12 @@ pub(crate) mod tests {
 
         // Should pick the lower of the two equally weighted banks
         assert_eq!(heaviest_bank.slot(), 1);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_child_bank_heavier() {
+        let (tx_poll, poll, inst) = setup_qat();
         // Init state
         let mut vote_simulator = VoteSimulator::new(1);
         let my_node_pubkey = vote_simulator.node_pubkeys[0];
@@ -5590,10 +5665,12 @@ pub(crate) mod tests {
                 3
             );
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_should_retransmit() {
+        let (tx_poll, poll, inst) = setup_qat();
         let poh_slot = 4;
         let mut last_retransmit_slot = 4;
         // We retransmitted already at slot 4, shouldn't retransmit until
@@ -5627,10 +5704,12 @@ pub(crate) mod tests {
             &mut last_retransmit_slot
         ));
         assert_eq!(last_retransmit_slot, poh_slot);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_slot_propagated_threshold_from_votes() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypairs: HashMap<_, _> = iter::repeat_with(|| {
             let vote_keypairs = ValidatorVoteKeypairs::new_rand();
             (vote_keypairs.node_keypair.pubkey(), vote_keypairs)
@@ -5672,6 +5751,7 @@ pub(crate) mod tests {
             &new_node_pubkeys[5..],
             2,
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     fn run_test_update_slot_propagated_threshold_from_votes(
@@ -5739,6 +5819,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_update_slot_propagated_threshold_from_votes2() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut empty: Vec<Pubkey> = vec![];
         let genesis_config = create_genesis_config(100_000_000).genesis_config;
         let root_bank = Bank::new_for_tests(&genesis_config);
@@ -5786,10 +5867,12 @@ pub(crate) mod tests {
             &mut propagated_stats,
             child_reached_threshold,
         ));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_propagation_status() {
+        let (tx_poll, poll, inst) = setup_qat();
         // Create genesis stakers
         let vote_keypairs = ValidatorVoteKeypairs::new_rand();
         let node_pubkey = vote_keypairs.node_keypair.pubkey();
@@ -5876,10 +5959,12 @@ pub(crate) mod tests {
             .contains(&vote_pubkey));
 
         assert_eq!(propagated_stats.propagated_validators_stake, stake);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_chain_update_propagation_status() {
+        let (tx_poll, poll, inst) = setup_qat();
         let keypairs: HashMap<_, _> = iter::repeat_with(|| {
             let vote_keypairs = ValidatorVoteKeypairs::new_rand();
             (vote_keypairs.node_keypair.pubkey(), vote_keypairs)
@@ -5960,10 +6045,12 @@ pub(crate) mod tests {
                 assert!(!propagated_stats.is_propagated);
             }
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_chain_update_propagation_status2() {
+        let (tx_poll, poll, inst) = setup_qat();
         let num_validators = 6;
         let keypairs: HashMap<_, _> = iter::repeat_with(|| {
             let vote_keypairs = ValidatorVoteKeypairs::new_rand();
@@ -6048,10 +6135,12 @@ pub(crate) mod tests {
                 assert!(!propagated_stats.is_propagated);
             }
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_check_propagation_for_start_leader() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut progress_map = ProgressMap::default();
         let poh_slot = 5;
         let parent_slot = poh_slot - NUM_CONSECUTIVE_LEADER_SLOTS;
@@ -6155,10 +6244,12 @@ pub(crate) mod tests {
             parent_slot,
             &progress_map,
         ));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_check_propagation_skip_propagation_check() {
+        let (tx_poll, poll, inst) = setup_qat();
         let mut progress_map = ProgressMap::default();
         let poh_slot = 4;
         let mut parent_slot = poh_slot - 1;
@@ -6238,10 +6329,12 @@ pub(crate) mod tests {
             parent_slot,
             &progress_map,
         ));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_purge_unconfirmed_duplicate_slot() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (vote_simulator, blockstore) = setup_default_forks(2, None::<GenerateVotes>);
         let VoteSimulator {
             bank_forks,
@@ -6389,10 +6482,12 @@ pub(crate) mod tests {
         // Slot 7 untouched
         assert!(!blockstore.is_dead(7));
         assert!(!blockstore.get_slot_entries(7, 0).unwrap().is_empty());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_purge_unconfirmed_duplicate_slots_and_reattach() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ReplayBlockstoreComponents {
             blockstore,
             validator_node_to_vote_keys,
@@ -6577,10 +6672,12 @@ pub(crate) mod tests {
             &mut replay_timing,
         );
         assert_eq!(bank_forks.read().unwrap().active_bank_slots(), vec![7]);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_purge_ancestors_descendants() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (VoteSimulator { bank_forks, .. }, _) = setup_default_forks(1, None::<GenerateVotes>);
 
         // Purge branch rooted at slot 2
@@ -6630,10 +6727,12 @@ pub(crate) mod tests {
         for k in descendants.keys() {
             assert!(*k < 3);
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_leader_snapshot_restart_propagation() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ReplayBlockstoreComponents {
             validator_node_to_vote_keys,
             leader_schedule_cache,
@@ -6706,10 +6805,12 @@ pub(crate) mod tests {
                 .get_leader_propagation_slot_must_exist(root_bank.slot())
                 .0
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_unconfirmed_duplicate_slots_and_lockouts_for_non_heaviest_fork() {
+        let (tx_poll, poll, inst) = setup_qat();
         /*
             Build fork structure:
 
@@ -6914,10 +7015,12 @@ pub(crate) mod tests {
                 HeaviestForkFailures::LockedOut(4)
             ]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_unconfirmed_duplicate_slots_and_lockouts() {
+        let (tx_poll, poll, inst) = setup_qat();
         /*
             Build fork structure:
 
@@ -7087,10 +7190,12 @@ pub(crate) mod tests {
         // is not votable, which avoids voting for 4 again.
         assert!(vote_fork.is_none());
         assert_eq!(reset_fork.unwrap(), 4);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dump_then_repair_correct_slots() {
+        let (tx_poll, poll, inst) = setup_qat();
         // Create the tree of banks in a BankForks object
         let forks = tr(0) / (tr(1)) / (tr(2));
 
@@ -7154,6 +7259,8 @@ pub(crate) mod tests {
                 assert!(descendants_result.is_none());
             }
         }
+
+        qat_tear_down(tx_poll, poll, inst);
         assert_eq!(2, purge_repair_slot_counter.len());
         assert_eq!(1, *purge_repair_slot_counter.get(&1).unwrap());
         assert_eq!(1, *purge_repair_slot_counter.get(&2).unwrap());
@@ -7334,6 +7441,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_duplicate_rollback_then_vote_locked_out() {
+        let (tx_poll, poll, inst) = setup_qat();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
@@ -7348,10 +7456,12 @@ pub(crate) mod tests {
             heaviest_fork_failures,
             vec![HeaviestForkFailures::LockedOut(7)]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_duplicate_rollback_then_vote_success() {
+        let (tx_poll, poll, inst) = setup_qat();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
@@ -7367,6 +7477,7 @@ pub(crate) mod tests {
         );
         assert_eq!(reset_bank.unwrap().slot(), 7);
         assert!(heaviest_fork_failures.is_empty());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     fn run_test_duplicate_rollback_then_vote_on_other_duplicate(
@@ -7457,6 +7568,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_duplicate_rollback_then_vote_on_other_duplicate_success() {
+        let (tx_poll, poll, inst) = setup_qat();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
@@ -7472,10 +7584,12 @@ pub(crate) mod tests {
         );
         assert_eq!(reset_bank.unwrap().slot(), 5);
         assert!(heaviest_fork_failures.is_empty());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_duplicate_rollback_then_vote_on_other_duplicate_same_slot_locked_out() {
+        let (tx_poll, poll, inst) = setup_qat();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
@@ -7490,11 +7604,13 @@ pub(crate) mod tests {
             heaviest_fork_failures,
             vec![HeaviestForkFailures::LockedOut(5)]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     #[ignore]
     fn test_duplicate_rollback_then_vote_on_other_duplicate_different_slot_locked_out() {
+        let (tx_poll, poll, inst) = setup_qat();
         let SelectVoteAndResetForkResult {
             vote_bank,
             reset_bank,
@@ -7509,10 +7625,12 @@ pub(crate) mod tests {
             heaviest_fork_failures,
             vec![HeaviestForkFailures::LockedOut(5)]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_gossip_vote_doesnt_affect_fork_choice() {
+        let (tx_poll, poll, inst) = setup_qat();
         let (
             VoteSimulator {
                 bank_forks,
@@ -7553,10 +7671,12 @@ pub(crate) mod tests {
 
         // Best slot is still 4
         assert_eq!(heaviest_subtree_fork_choice.best_overall_slot().0, 4);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_replay_stage_refresh_last_vote() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ReplayBlockstoreComponents {
             cluster_info,
             poh_recorder,
@@ -7969,6 +8089,7 @@ pub(crate) mod tests {
             BlockhashStatus::Blockhash(expired_bank.last_blockhash())
         );
         assert_eq!(tower.last_voted_slot().unwrap(), 1);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -8066,6 +8187,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_replay_stage_last_vote_outside_slot_hashes() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let ReplayBlockstoreComponents {
             cluster_info,
@@ -8267,10 +8389,12 @@ pub(crate) mod tests {
             &heaviest_subtree_fork_choice,
         );
         assert!(vote_bank.is_none());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_retransmit_latest_unpropagated_leader_slot() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ReplayBlockstoreComponents {
             validator_node_to_vote_keys,
             leader_schedule_cache,
@@ -8436,6 +8560,7 @@ pub(crate) mod tests {
             4,
             "retransmit should advance retry_iteration"
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     fn receive_slots(retransmit_slots_receiver: &Receiver<Slot>) -> Vec<Slot> {
@@ -8448,6 +8573,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_maybe_retransmit_unpropagated_slots() {
+        let (tx_poll, poll, inst) = setup_qat();
         let ReplayBlockstoreComponents {
             validator_node_to_vote_keys,
             leader_schedule_cache,
@@ -8526,10 +8652,12 @@ pub(crate) mod tests {
         );
         let received_slots = receive_slots(&retransmit_slots_receiver);
         assert_eq!(received_slots, vec![8, 9, 11]);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_dumped_slot_not_causing_panic() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let ReplayBlockstoreComponents {
             validator_node_to_vote_keys,
@@ -8647,11 +8775,13 @@ pub(crate) mod tests {
             has_new_vote_been_rooted,
             track_transaction_indexes,
         ));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     #[should_panic(expected = "We are attempting to dump a block that we produced")]
     fn test_dump_own_slots_fails() {
+        let (tx_poll, poll, inst) = setup_qat();
         // Create the tree of banks in a BankForks object
         let forks = tr(0) / (tr(1)) / (tr(2));
 
@@ -8695,6 +8825,7 @@ pub(crate) mod tests {
             my_pubkey,
             leader_schedule_cache,
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     fn run_compute_and_select_forks(
@@ -8804,6 +8935,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_check_for_vote_only_mode() {
+        let (tx_poll, poll, inst) = setup_qat();
         let in_vote_only_mode = AtomicBool::new(false);
         let genesis_config = create_genesis_config(10_000).genesis_config;
         let bank0 = Bank::new_for_tests(&genesis_config);
@@ -8812,10 +8944,12 @@ pub(crate) mod tests {
         assert!(in_vote_only_mode.load(Ordering::Relaxed));
         ReplayStage::check_for_vote_only_mode(10, 0, &in_vote_only_mode, &bank_forks);
         assert!(!in_vote_only_mode.load(Ordering::Relaxed));
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_tower_sync_from_bank_failed_switch() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup_with_default(
             "error,solana_core::replay_stage=info,solana_core::consensus=info",
         );
@@ -8893,10 +9027,12 @@ pub(crate) mod tests {
                 HeaviestForkFailures::LockedOut(4)
             ]
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_tower_sync_from_bank_failed_lockout() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup_with_default(
             "error,solana_core::replay_stage=info,solana_core::consensus=info",
         );
@@ -8964,10 +9100,12 @@ pub(crate) mod tests {
         assert_eq!(vote_fork, None);
         assert_eq!(reset_fork, Some(4));
         assert_eq!(failures, vec![HeaviestForkFailures::LockedOut(4),]);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_tower_adopt_from_bank_cache_only_computed() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup_with_default(
             "error,solana_core::replay_stage=info,solana_core::consensus=info",
         );
@@ -9046,10 +9184,12 @@ pub(crate) mod tests {
         let fork_stats_4 = progress.get_fork_stats(4).unwrap();
         assert!(!fork_stats_4.is_locked_out);
         assert!(!fork_stats_4.computed);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_tower_load_missing() {
+        let (tx_poll, poll, inst) = setup_qat();
         let tower_file = tempdir().unwrap().into_path();
         let tower_storage = FileTowerStorage::new(tower_file);
         let node_pubkey = Pubkey::new_unique();
@@ -9071,10 +9211,12 @@ pub(crate) mod tests {
         let expected_tower = Tower::new_for_tests(VOTE_THRESHOLD_DEPTH, VOTE_THRESHOLD_SIZE);
         assert_eq!(tower.vote_state, expected_tower.vote_state);
         assert_eq!(tower.node_pubkey, node_pubkey);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_tower_load() {
+        let (tx_poll, poll, inst) = setup_qat();
         let tower_file = tempdir().unwrap().into_path();
         let tower_storage = FileTowerStorage::new(tower_file);
         let node_keypair = Keypair::new();
@@ -9098,10 +9240,12 @@ pub(crate) mod tests {
                 .unwrap();
         assert_eq!(tower.vote_state, expected_tower.vote_state);
         assert_eq!(tower.node_pubkey, expected_tower.node_pubkey);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_initialize_progress_and_fork_choice_with_duplicates() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo {
             mut genesis_config, ..
@@ -9230,10 +9374,12 @@ pub(crate) mod tests {
         assert!(!fork_choice
             .is_candidate(&(5, bank_forks.bank_hash(5).unwrap()))
             .unwrap());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_skip_leader_slot_for_existing_slot() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
 
         let ReplayBlockstoreComponents {
@@ -9352,11 +9498,13 @@ pub(crate) mod tests {
         // duplicate block.
         assert_eq!(working_bank.slot(), good_slot);
         assert_eq!(working_bank.parent_slot(), initial_slot);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     #[should_panic(expected = "Additional duplicate confirmed notification for slot 6")]
     fn test_mark_slots_duplicate_confirmed() {
+        let (tx_poll, poll, inst) = setup_qat();
         let generate_votes = |pubkeys: Vec<Pubkey>| {
             pubkeys
                 .into_iter()
@@ -9465,12 +9613,14 @@ pub(crate) mod tests {
             &mut PurgeRepairSlotCounter::default(),
             &mut duplicate_confirmed_slots,
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test_case(true ; "same_batch")]
     #[test_case(false ; "seperate_batches")]
     #[should_panic(expected = "Additional duplicate confirmed notification for slot 6")]
     fn test_process_duplicate_confirmed_slots(same_batch: bool) {
+        let (tx_poll, poll, inst) = setup_qat();
         let generate_votes = |pubkeys: Vec<Pubkey>| {
             pubkeys
                 .into_iter()
@@ -9589,5 +9739,7 @@ pub(crate) mod tests {
             &ancestor_hashes_replay_update_sender,
             &mut PurgeRepairSlotCounter::default(),
         );
+
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

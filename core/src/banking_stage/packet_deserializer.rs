@@ -217,12 +217,57 @@ impl PacketDeserializer {
 mod tests {
     use {
         super::*,
+        qat_shim::qat::{self, Instance},
         solana_perf::packet::to_packet_batches,
         solana_sdk::{
             hash::Hash, pubkey::Pubkey, signature::Keypair, system_transaction,
             transaction::Transaction,
         },
+        std::sync::mpsc::channel,
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     fn random_transfer() -> Transaction {
         system_transaction::transfer(&Keypair::new(), &Pubkey::new_unique(), 1, Hash::default())
@@ -230,14 +275,17 @@ mod tests {
 
     #[test]
     fn test_deserialize_and_collect_packets_empty() {
+        let (tx_poll, poll, inst) = setup_qat();
         let results = PacketDeserializer::deserialize_and_collect_packets(0, &[], Ok);
         assert_eq!(results.deserialized_packets.len(), 0);
         assert_eq!(results.packet_stats.passed_sigverify_count, 0);
         assert_eq!(results.packet_stats.failed_sigverify_count, 0);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_deserialize_and_collect_packets_simple_batches() {
+        let (tx_poll, poll, inst) = setup_qat();
         let transactions = vec![random_transfer(), random_transfer()];
         let packet_batches = to_packet_batches(&transactions, 1);
         assert_eq!(packet_batches.len(), 2);
@@ -251,10 +299,12 @@ mod tests {
         assert_eq!(results.deserialized_packets.len(), 2);
         assert_eq!(results.packet_stats.passed_sigverify_count, 2);
         assert_eq!(results.packet_stats.failed_sigverify_count, 0);
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_deserialize_and_collect_packets_simple_batches_with_failure() {
+        let (tx_poll, poll, inst) = setup_qat();
         let transactions = vec![random_transfer(), random_transfer()];
         let mut packet_batches = to_packet_batches(&transactions, 1);
         assert_eq!(packet_batches.len(), 2);
@@ -269,5 +319,6 @@ mod tests {
         assert_eq!(results.deserialized_packets.len(), 1);
         assert_eq!(results.packet_stats.passed_sigverify_count, 1);
         assert_eq!(results.packet_stats.failed_sigverify_count, 1);
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

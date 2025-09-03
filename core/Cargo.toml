@@ -162,6 +162,7 @@ spl-memo = { workspace = true, features = ["no-entrypoint"] }
 static_assertions = { workspace = true }
 systemstat = { workspace = true }
 test-case = { workspace = true }
+qat-shim = { workspace = true }
 
 [badges]
 codecov = { repository = "solana-labs/solana", branch = "master", service = "github" }

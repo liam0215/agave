@@ -4,6 +4,7 @@ use {
     crossbeam_channel::unbounded,
     itertools::Itertools,
     log::*,
+    qat_shim::qat::{self, Instance},
     solana_core::{
         banking_stage::unified_scheduler::ensure_banking_stage_setup,
         banking_trace::BankingTracer,
@@ -45,14 +46,58 @@ use {
     },
     std::{
         collections::HashMap,
-        sync::{atomic::Ordering, Arc, Mutex},
+        sync::{atomic::Ordering, mpsc::channel, Arc, Mutex},
         thread::sleep,
         time::Duration,
     },
 };
 
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
+
 #[test]
 fn test_scheduler_waited_by_drop_bank_service() {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     static LOCK_TO_STALL: Mutex<()> = Mutex::new(());
@@ -202,10 +247,12 @@ fn test_scheduler_waited_by_drop_bank_service() {
 
     // the scheduler used by the pruned_bank have been returned now.
     assert_eq!(pool_raw.pooled_scheduler_count(), 1);
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 #[test]
 fn test_scheduler_producing_blocks() {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     let GenesisConfigInfo {
@@ -296,4 +343,5 @@ fn test_scheduler_producing_blocks() {
     // Stop things.
     exit.store(true, Ordering::Relaxed);
     poh_service.join().unwrap();
+    qat_tear_down(tx_poll, poll, inst);
 }

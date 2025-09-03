@@ -610,6 +610,7 @@ mod tests {
     use {
         super::*,
         itertools::Itertools,
+        qat_shim::qat::{self, Instance},
         solana_cost_model::transaction_cost::{UsageCostDetails, WritableKeysTransaction},
         solana_runtime::genesis_utils::{create_genesis_config, GenesisConfigInfo},
         solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
@@ -619,11 +620,55 @@ mod tests {
             system_transaction,
         },
         solana_vote_program::{vote_state::TowerSync, vote_transaction},
-        std::sync::Arc,
+        std::sync::{mpsc::channel, Arc},
     };
+
+    fn setup_qat() -> (
+        Option<std::sync::mpsc::Sender<()>>,
+        Option<std::thread::JoinHandle<()>>,
+        Instance,
+    ) {
+        qat_shim::qat::start_session("SSL").expect("start session failed");
+        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+        let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+        inst.set_address_translation()
+            .expect("set address translation failed");
+        inst.start().expect("start instance failed");
+        let (tx_poll, poll) = if inst.is_polled().unwrap() {
+            let (tx, rx) = channel();
+            let inst2 = inst.clone();
+            let poll = std::thread::spawn(move || {
+                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                    let _ = inst2.clone().poll_once();
+                }
+                println!("Polling thread exiting");
+            });
+            (Some(tx), Some(poll))
+        } else {
+            (None, None)
+        };
+        (tx_poll, poll, inst)
+    }
+
+    fn qat_tear_down(
+        tx_poll: Option<std::sync::mpsc::Sender<()>>,
+        poll: Option<std::thread::JoinHandle<()>>,
+        inst: Instance,
+    ) {
+        if let Some(tx_poll) = tx_poll {
+            tx_poll
+                .send(())
+                .expect("Failed to send stop signal to polling thread");
+            poll.unwrap().join().expect("Polling thread panicked");
+        }
+        inst.stop().expect("stop instance failed");
+        qat_shim::qat::stop_session().expect("stop session failed");
+        qat_shim::qat::qae_mem_destroy();
+    }
 
     #[test]
     fn test_compute_transaction_costs() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
 
         // make a vec of txs
@@ -662,10 +707,12 @@ mod tests {
                 );
             })
             .collect_vec();
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_select_transactions_per_cost() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);
         let bank = Arc::new(Bank::new_for_tests(&genesis_config));
@@ -712,10 +759,12 @@ mod tests {
         assert!(results[1].is_ok());
         assert!(results[2].is_err());
         assert!(results[3].is_err());
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_and_remove_transaction_costs_committed() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);
         let bank = Arc::new(Bank::new_for_tests(&genesis_config));
@@ -790,10 +839,12 @@ mod tests {
                 bank.read_cost_tracker().unwrap().transaction_count()
             );
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_and_remove_transaction_costs_not_committed() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);
         let bank = Arc::new(Bank::new_for_tests(&genesis_config));
@@ -836,10 +887,12 @@ mod tests {
             assert_eq!(0, bank.read_cost_tracker().unwrap().block_cost());
             assert_eq!(0, bank.read_cost_tracker().unwrap().transaction_count());
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_update_and_remove_transaction_costs_mixed_execution() {
+        let (tx_poll, poll, inst) = setup_qat();
         solana_logger::setup();
         let GenesisConfigInfo { genesis_config, .. } = create_genesis_config(10);
         let bank = Arc::new(Bank::new_for_tests(&genesis_config));
@@ -929,10 +982,12 @@ mod tests {
                 bank.read_cost_tracker().unwrap().transaction_count()
             );
         }
+        qat_tear_down(tx_poll, poll, inst);
     }
 
     #[test]
     fn test_accumulate_batched_transaction_costs() {
+        let (tx_poll, poll, inst) = setup_qat();
         let signature_cost = 1;
         let write_lock_cost = 2;
         let data_bytes_cost = 3;
@@ -982,5 +1037,6 @@ mod tests {
                 .costs
                 .batched_programs_execute_cost
         );
+        qat_tear_down(tx_poll, poll, inst);
     }
 }

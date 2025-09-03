@@ -7371,6 +7371,7 @@ dependencies = [
  "min-max-heap",
  "num_enum",
  "prio-graph",
+ "qat-shim",
  "qualifier_attr",
  "quinn",
  "rand 0.8.5",

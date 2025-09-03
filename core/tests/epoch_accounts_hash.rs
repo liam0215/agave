@@ -5,6 +5,7 @@ use {
     crate::snapshot_utils::create_tmp_accounts_dir_for_tests,
     agave_feature_set as feature_set,
     log::*,
+    qat_shim::qat::{self, Instance},
     solana_accounts_db::{
         accounts_db::CalcAccountsHashDataSource, accounts_hash::CalcAccountsHashConfig,
         epoch_accounts_hash::EpochAccountsHash,
@@ -42,6 +43,7 @@ use {
         mem::ManuallyDrop,
         sync::{
             atomic::{AtomicBool, Ordering},
+            mpsc::channel,
             Arc, Mutex, RwLock,
         },
         time::Duration,
@@ -49,6 +51,49 @@ use {
     tempfile::TempDir,
     test_case::test_case,
 };
+
+fn setup_qat() -> (
+    Option<std::sync::mpsc::Sender<()>>,
+    Option<std::thread::JoinHandle<()>>,
+    Instance,
+) {
+    qat_shim::qat::start_session("SSL").expect("start session failed");
+    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    inst.set_address_translation()
+        .expect("set address translation failed");
+    inst.start().expect("start instance failed");
+    let (tx_poll, poll) = if inst.is_polled().unwrap() {
+        let (tx, rx) = channel();
+        let inst2 = inst.clone();
+        let poll = std::thread::spawn(move || {
+            while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
+                let _ = inst2.clone().poll_once();
+            }
+            println!("Polling thread exiting");
+        });
+        (Some(tx), Some(poll))
+    } else {
+        (None, None)
+    };
+    (tx_poll, poll, inst)
+}
+
+fn qat_tear_down(
+    tx_poll: Option<std::sync::mpsc::Sender<()>>,
+    poll: Option<std::thread::JoinHandle<()>>,
+    inst: Instance,
+) {
+    if let Some(tx_poll) = tx_poll {
+        tx_poll
+            .send(())
+            .expect("Failed to send stop signal to polling thread");
+        poll.unwrap().join().expect("Polling thread panicked");
+    }
+    inst.stop().expect("stop instance failed");
+    qat_shim::qat::stop_session().expect("stop session failed");
+    qat_shim::qat::qae_mem_destroy();
+}
 
 struct TestEnvironment {
     /// NOTE: The fields are arranged to ensure they are dropped in the correct order.
@@ -258,6 +303,7 @@ impl Drop for BackgroundServices {
 #[test_case(TestEnvironment::new()                      ; "without snapshots")]
 #[test_case(TestEnvironment::new_with_snapshots(80, 40) ; "with snapshots")]
 fn test_epoch_accounts_hash_basic(test_environment: TestEnvironment) {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     const NUM_EPOCHS_TO_TEST: u64 = 2;
@@ -355,6 +401,7 @@ fn test_epoch_accounts_hash_basic(test_environment: TestEnvironment) {
         // Give the background services a chance to run
         std::thread::yield_now();
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 /// Ensure that snapshots always have the expected EAH
@@ -369,6 +416,7 @@ fn test_epoch_accounts_hash_basic(test_environment: TestEnvironment) {
 /// in-flight or valid.
 #[test]
 fn test_snapshots_have_expected_epoch_accounts_hash() {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     const NUM_EPOCHS_TO_TEST: u64 = 2;
@@ -485,6 +533,7 @@ fn test_snapshots_have_expected_epoch_accounts_hash() {
         // Give the background services a chance to run
         std::thread::yield_now();
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 /// Ensure that EAH works well with ABS's snapshot request handling
@@ -493,6 +542,7 @@ fn test_snapshots_have_expected_epoch_accounts_hash() {
 /// EAH request and the second bank sends a snapshot request, both requests should be handled.
 #[test]
 fn test_background_services_request_handling_for_epoch_accounts_hash() {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     const NUM_EPOCHS_TO_TEST: u64 = 2;
@@ -575,6 +625,7 @@ fn test_background_services_request_handling_for_epoch_accounts_hash() {
         // Give the background services a chance to run
         std::thread::yield_now();
     }
+    qat_tear_down(tx_poll, poll, inst);
 }
 
 /// Ensure that warping and EAH play nicely together
@@ -583,6 +634,7 @@ fn test_background_services_request_handling_for_epoch_accounts_hash() {
 /// that use-case.
 #[test]
 fn test_epoch_accounts_hash_and_warping() {
+    let (tx_poll, poll, inst) = setup_qat();
     solana_logger::setup();
 
     let test_environment = TestEnvironment::new();
@@ -693,4 +745,5 @@ fn test_epoch_accounts_hash_and_warping() {
         .epoch_accounts_hash_manager
         .wait_get_epoch_accounts_hash();
     info!("Waiting for epoch accounts hash... DONE");
+    qat_tear_down(tx_poll, poll, inst);
 }
