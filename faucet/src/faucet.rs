@@ -358,6 +358,7 @@ pub async fn run_faucet(
     faucet_addr: SocketAddr,
     sender: Option<Sender<Result<SocketAddr, String>>>,
 ) {
+    println!("faucet_addr raw: {:?}", faucet_addr);
     let listener = TcpListener::bind(&faucet_addr).await;
     if let Some(sender) = sender {
         sender.send(

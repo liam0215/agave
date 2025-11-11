@@ -18,12 +18,13 @@ use {
 
 #[tokio::main]
 async fn main() {
-    qat_shim::qat::start_session("SSL").expect("start session failed");
-    qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
-    let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
-    inst.set_address_translation()
-        .expect("set address translation failed");
-    inst.start().expect("start instance failed");
+    // qat_shim::qat::start_session("SSL").expect("start session failed");
+    // qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
+    // let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
+    // inst.set_address_translation()
+    //     .expect("set address translation failed");
+    // inst.start().expect("start instance failed");
+
     // let (tx_poll, poll) = if inst.is_polled().unwrap() {
     //     let (tx, rx) = channel();
     //     let inst2 = inst.clone();
@@ -126,7 +127,8 @@ async fn main() {
     //         .expect("Failed to send stop signal to polling thread");
     //     poll.unwrap().join().expect("Polling thread panicked");
     // }
-    inst.stop().expect("stop instance failed");
-    qat_shim::qat::stop_session().expect("stop session failed");
-    qat_shim::qat::qae_mem_destroy();
+
+    // inst.stop().expect("stop instance failed");
+    // qat_shim::qat::stop_session().expect("stop session failed");
+    // qat_shim::qat::qae_mem_destroy();
 }
