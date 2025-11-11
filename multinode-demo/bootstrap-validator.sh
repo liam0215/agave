@@ -16,7 +16,8 @@ fi
 if [[ -n $SOLANA_CUDA ]]; then
   program=$agave_validator_cuda
 else
-  program=$agave_validator
+  # program=$agave_validator
+  program=/data2/liam/agave/target/release-with-debug/agave-validator
 fi
 
 no_restart=0
