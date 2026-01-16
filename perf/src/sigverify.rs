@@ -25,7 +25,8 @@ pub const VERIFY_PACKET_CHUNK_SIZE: usize = 128;
 
 lazy_static! {
     static ref PAR_THREAD_POOL: ThreadPool = rayon::ThreadPoolBuilder::new()
-        .num_threads(get_thread_count())
+        // .num_threads(std::cmp::min(get_thread_count() * 2, 14))
+        .num_threads(15)
         .thread_name(|i| format!("solSigVerify{i:02}"))
         .build()
         .unwrap();

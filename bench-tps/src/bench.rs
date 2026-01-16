@@ -17,6 +17,7 @@ use {
     solana_sdk::{
         account::Account,
         clock::{DEFAULT_MS_PER_SLOT, DEFAULT_S_PER_SLOT, MAX_PROCESSING_AGE},
+        commitment_config::CommitmentConfig,
         compute_budget::ComputeBudgetInstruction,
         hash::Hash,
         instruction::{AccountMeta, Instruction},
@@ -32,9 +33,10 @@ use {
     spl_instruction_padding::instruction::wrap_instruction,
     std::{
         collections::{HashSet, VecDeque},
+        hint,
         process::exit,
         sync::{
-            atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering},
+            atomic::{AtomicBool, AtomicIsize, AtomicU64, AtomicUsize, Ordering},
             Arc, RwLock,
         },
         thread::{sleep, Builder, JoinHandle},
@@ -320,15 +322,20 @@ fn generate_chunked_transfers<T: 'static + TpsClient + Send + Sync + ?Sized>(
     // generate and send transactions for the specified duration
     let start = Instant::now();
     let mut last_generate_txs_time = Instant::now();
+    let mut times_backed_off = 0;
+    let offered_tx_count = AtomicU64::new(0);
+    let mut last_report = Instant::now();
+    let report_interval = Duration::from_secs(1);
 
     while start.elapsed() < duration {
-        generate_txs(
+        let total_txs_generated = generate_txs(
             shared_txs,
             &recent_blockhash,
             &mut chunk_generator,
             threads,
             use_durable_nonce,
         );
+        offered_tx_count.fetch_add(total_txs_generated as u64, Ordering::Relaxed);
 
         datapoint_info!(
             "blockhash_stats",
@@ -341,6 +348,24 @@ fn generate_chunked_transfers<T: 'static + TpsClient + Send + Sync + ?Sized>(
 
         last_generate_txs_time = Instant::now();
 
+        let now = Instant::now();
+        if now.duration_since(last_report) >= report_interval {
+            let elapsed = now.duration_since(last_report).as_secs_f64();
+            let txs = offered_tx_count.swap(0, Ordering::Relaxed);
+
+            let offered_tps = (txs as f64) / elapsed;
+
+            info!(
+                "offered_load: {:.2} tx/s ({} txs over {:.2}s); elapsed since start: {:.2}s",
+                offered_tps,
+                txs,
+                elapsed,
+                start.elapsed().as_secs_f64()
+            );
+
+            last_report = now;
+        }
+
         // In sustained mode, overlap the transfers with generation. This has higher average
         // performance but lower peak performance in tested environments.
         if sustained {
@@ -352,11 +377,15 @@ fn generate_chunked_transfers<T: 'static + TpsClient + Send + Sync + ?Sized>(
             while !shared_txs.read().unwrap().is_empty()
                 || shared_tx_active_thread_count.load(Ordering::Relaxed) > 0
             {
+                times_backed_off += 1;
                 sleep(Duration::from_millis(1));
+                // hint::spin_loop();
             }
         }
         chunk_generator.advance();
     }
+    // Log times backed off
+    info!("Times backed off: {}", times_backed_off);
 }
 
 fn create_sender_threads<T>(
@@ -554,6 +583,20 @@ where
         sample_period,
         &start.elapsed(),
         total_tx_sent_count.load(Ordering::Relaxed),
+    );
+
+    // sleep(Duration::from_secs(10));
+    // let total_txs_after_delay = client
+    //     .get_transaction_count_with_commitment(CommitmentConfig::processed())
+    //     .expect("transaction count");
+    //
+    // info!(
+    //     "Total transactions confirmed after waiting: {}",
+    //     total_txs_after_delay
+    // );
+    info!(
+        "Total transactions sent: {}",
+        total_tx_sent_count.load(Ordering::Relaxed)
     );
 
     let r_maxes = maxes.read().unwrap();
@@ -855,7 +898,7 @@ fn generate_txs<T: 'static + TpsClient + Send + Sync + ?Sized>(
     chunk_generator: &mut TransactionChunkGenerator<'_, '_, T>,
     threads: usize,
     use_durable_nonce: bool,
-) {
+) -> usize {
     let transactions = if use_durable_nonce {
         chunk_generator.generate(None)
     } else {
@@ -864,13 +907,16 @@ fn generate_txs<T: 'static + TpsClient + Send + Sync + ?Sized>(
     };
 
     let sz = transactions.len() / threads;
+    let mut total_txs_generated = 0;
     let chunks: Vec<_> = transactions.chunks(sz).collect();
     {
         let mut shared_txs_wl = shared_txs.write().unwrap();
         for chunk in chunks {
+            total_txs_generated += chunk.len();
             shared_txs_wl.push_back(chunk.to_vec());
         }
     }
+    return total_txs_generated;
 }
 
 fn get_new_latest_blockhash<T: TpsClient + ?Sized>(
@@ -965,7 +1011,7 @@ fn do_tx_transfers<T: TpsClient + ?Sized>(
             let num_txs = txs.len();
             info!("Transferring 1 unit {} times...", num_txs);
             let transfer_start = Instant::now();
-            let mut old_transactions = false;
+            let mut old_transactions = 0;
             let mut min_timestamp = u64::MAX;
             let mut transactions = Vec::<_>::with_capacity(num_txs);
             let mut signatures = Vec::<_>::with_capacity(num_txs);
@@ -979,7 +1025,7 @@ fn do_tx_transfers<T: TpsClient + ?Sized>(
                         min_timestamp = tx_timestamp;
                     }
                     if now > tx_timestamp && now - tx_timestamp > 1000 * MAX_TX_QUEUE_AGE {
-                        old_transactions = true;
+                        old_transactions += 1;
                         continue;
                     }
                 }
@@ -1021,7 +1067,11 @@ fn do_tx_transfers<T: TpsClient + ?Sized>(
 
             last_sent_time = timestamp();
 
-            if old_transactions {
+            if old_transactions > 0 {
+                datapoint_info!(
+                    "bench-tps-do_tx_transfers",
+                    ("old-transactions", old_transactions, i64)
+                );
                 let mut shared_txs_wl = shared_txs.write().expect("write lock in do_tx_transfers");
                 shared_txs_wl.clear();
             }
