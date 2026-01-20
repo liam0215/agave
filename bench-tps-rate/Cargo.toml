@@ -1,0 +1,39 @@
+[package]
+name = "solana-bench-tps-rate"
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[[bin]]
+name = "solana-bench-tps-rate"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+crossbeam-channel = { workspace = true }
+log = { workspace = true }
+rayon = { workspace = true }
+solana-clap-utils = { workspace = true }
+solana-cli-config = { workspace = true }
+solana-client = { workspace = true }
+solana-connection-cache = { workspace = true }
+solana-logger = "=2.3.1"
+solana-measure = { workspace = true }
+solana-metrics = { workspace = true }
+solana-net-utils = { workspace = true }
+solana-quic-client = { workspace = true }
+solana-rpc-client = { workspace = true }
+solana-rpc-client-api = { workspace = true }
+solana-sdk = { workspace = true }
+solana-tps-client = { workspace = true }
+solana-tpu-client = { workspace = true }
+solana-transaction-status = { workspace = true }
+solana-version = { workspace = true }
+thiserror = { workspace = true }

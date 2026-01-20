@@ -16,6 +16,7 @@ members = [
     "banks-server",
     "bench-streamer",
     "bench-tps",
+    "bench-tps-rate",
     "bench-vote",
     "bloom",
     "bucket_map",
