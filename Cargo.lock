@@ -6499,6 +6499,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-bench-tps-rate"
+version = "2.2.18"
+dependencies = [
+ "clap 2.33.3",
+ "crossbeam-channel",
+ "log",
+ "rayon",
+ "solana-clap-utils",
+ "solana-cli-config",
+ "solana-client",
+ "solana-connection-cache",
+ "solana-logger",
+ "solana-measure",
+ "solana-metrics",
+ "solana-net-utils",
+ "solana-quic-client",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-sdk",
+ "solana-tps-client",
+ "solana-tpu-client",
+ "solana-transaction-status",
+ "solana-version",
+ "thiserror 2.0.11",
+]
+
+[[package]]
 name = "solana-bench-vote"
 version = "2.2.18"
 dependencies = [
