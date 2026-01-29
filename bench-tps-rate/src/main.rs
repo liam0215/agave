@@ -200,8 +200,10 @@ fn build_args<'a>(version: &'_ str) -> App<'a, '_> {
                 .long("num-keypairs")
                 .value_name("COUNT")
                 .takes_value(true)
-                .validator(|s| is_within_range(s, 2..))
-                .help("Number of keypairs to generate and fund (default: 100)"),
+                .validator(|s| is_within_range(s, 4..))
+                .help("Number of keypairs to generate and fund (default: 100, min: 4). \
+                       Keypairs are split into disjoint source/destination pools to avoid \
+                       account lock contention. More keypairs = more parallelism."),
         )
         .arg(
             Arg::with_name("num_lamports_per_account")
@@ -863,10 +865,16 @@ fn run_benchmark(
         info!("  Using staked connection");
     }
 
-    // Generate keypairs - ensure we have at least 2 per thread
-    let min_keypairs = num_threads * 2;
+    // Generate keypairs - ensure we have at least 4 per thread
+    // (2 sources + 2 destinations for disjoint pools to avoid lock contention)
+    let min_keypairs = num_threads * 4;
     let num_keypairs = config.num_keypairs.max(min_keypairs);
-    info!("Generating {} keypairs...", num_keypairs);
+    info!(
+        "Generating {} keypairs ({} sources + {} destinations per thread)...",
+        num_keypairs,
+        num_keypairs / num_threads / 2,
+        num_keypairs / num_threads / 2
+    );
     let keypairs: Vec<Keypair> = (0..num_keypairs).map(|_| Keypair::new()).collect();
 
     // Calculate minimum balance needed (rent + lamports for transfers + fees)
