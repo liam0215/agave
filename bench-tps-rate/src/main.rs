@@ -58,6 +58,8 @@ struct Config {
     num_threads: usize,
     /// Warmup period in seconds (transactions sent but not tracked)
     warmup_secs: u64,
+    /// Lateness threshold in microseconds (sends later than this are "late")
+    schedule_lateness_threshold_us: u64,
 }
 
 impl Default for Config {
@@ -82,6 +84,7 @@ impl Default for Config {
             num_lamports_per_account: solana_sdk::native_token::LAMPORTS_PER_SOL,
             num_threads: 1,
             warmup_secs: 0,
+            schedule_lateness_threshold_us: 100000, // 100,000µs
         }
     }
 }
@@ -269,6 +272,14 @@ fn build_args<'a>(version: &'_ str) -> App<'a, '_> {
                 .takes_value(true)
                 .help("Warmup period in seconds. Transactions are sent but not tracked for statistics (default: 0)"),
         )
+        .arg(
+            Arg::with_name("schedule_lateness_threshold")
+                .long("schedule-lateness-threshold")
+                .value_name("MICROSECONDS")
+                .takes_value(true)
+                .default_value("5")
+                .help("Lateness threshold in microseconds for schedule adherence tracking"),
+        )
 }
 
 fn parse_args(matches: &ArgMatches) -> Result<Config, &'static str> {
@@ -392,6 +403,12 @@ fn parse_args(matches: &ArgMatches) -> Result<Config, &'static str> {
 
     if let Some(warmup) = matches.value_of("warmup") {
         args.warmup_secs = warmup.parse().map_err(|_| "can't parse warmup")?;
+    }
+
+    if let Some(threshold) = matches.value_of("schedule_lateness_threshold") {
+        args.schedule_lateness_threshold_us = threshold
+            .parse()
+            .map_err(|_| "can't parse schedule-lateness-threshold")?;
     }
 
     Ok(args)
@@ -594,7 +611,10 @@ const TX_CHANNEL_CAPACITY: usize = 2000;
 const TX_BATCH_SIZE: usize = 500;
 // Maximum allowed lateness before dropping a transaction (in milliseconds)
 // If we're more than this far behind schedule, drop the transaction to maintain timing accuracy
-const MAX_SEND_LATENESS_MS: u64 = 100;
+const MAX_SEND_LATENESS_US: u64 = 100000;
+// Maximum allowed difference between fastest and slowest thread (in transactions)
+// If a thread is this far ahead of the minimum, it waits for others to catch up
+const MAX_THREAD_LEAD: u64 = 500;
 
 /// Spawn a producer thread that generates transactions in batches.
 ///
@@ -655,6 +675,21 @@ fn spawn_producer_thread(
         .expect("Failed to spawn producer thread")
 }
 
+/// Per-thread schedule adherence counters
+struct ThreadScheduleStats {
+    on_schedule: AtomicU64,
+    late: AtomicU64,
+}
+
+impl ThreadScheduleStats {
+    fn new() -> Self {
+        Self {
+            on_schedule: AtomicU64::new(0),
+            late: AtomicU64::new(0),
+        }
+    }
+}
+
 /// Spawn a sender thread that sends transactions at a given rate.
 ///
 /// Uses a producer-consumer pattern: a separate producer thread generates
@@ -670,11 +705,14 @@ fn spawn_sender_thread(
     exit_signal: Arc<AtomicBool>,
     global_sent_count: Arc<AtomicU64>,
     global_tracked_count: Arc<AtomicU64>,
+    schedule_stats: Arc<ThreadScheduleStats>,
+    schedule_lateness_threshold_us: u64,
     start_time: Instant,
     warmup_duration: Duration,
     measurement_duration: Duration,
     total_duration: Option<Duration>,
     tx_count_limit: Option<u64>,
+    thread_sent_counts: Arc<Vec<Arc<AtomicU64>>>,
 ) -> JoinHandle<u64> {
     thread::Builder::new()
         .name(format!("sender-{}", thread_id))
@@ -740,21 +778,15 @@ fn spawn_sender_thread(
                                 last_blockhash = new_blockhash;
                                 last_blockhash_time = Instant::now();
 
-                                // Update shared blockhash and increment generation
+                                // Update shared blockhash and increment generation.
+                                // Producer will pick up new blockhash for future batches.
+                                // Buffered transactions with old blockhash are still valid
+                                // (~60s validity window), so no drain is needed.
                                 {
                                     let mut guard = shared_blockhash.write().unwrap();
                                     *guard = new_blockhash;
                                 }
                                 blockhash_generation.fetch_add(1, Ordering::Relaxed);
-
-                                // Drain stale transactions from channel
-                                let drained = drain_channel(&tx_consumer);
-                                if drained > 0 {
-                                    debug!(
-                                        "Thread {}: Drained {} stale transactions after blockhash change",
-                                        thread_id, drained
-                                    );
-                                }
                             }
                         }
                         Err(e) => {
@@ -769,7 +801,16 @@ fn spawn_sender_thread(
 
                 // Check if we're too far behind schedule - if so, drop this slot
                 let lateness = now.saturating_duration_since(scheduled_time);
-                if lateness > Duration::from_millis(MAX_SEND_LATENESS_MS) {
+
+                // Track schedule adherence
+                if lateness <= Duration::from_micros(schedule_lateness_threshold_us) {
+                    schedule_stats.on_schedule.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    schedule_stats.late.fetch_add(1, Ordering::Relaxed);
+                }
+
+                // Existing late drop logic (100ms threshold) unchanged
+                if lateness > Duration::from_micros(MAX_SEND_LATENESS_US) {
                     // Too late - discard a transaction from channel to keep producer moving
                     let _ = tx_consumer.try_recv();
                     debug!(
@@ -808,6 +849,32 @@ fn spawn_sender_thread(
 
                 local_sent += 1;
                 global_sent_count.fetch_add(1, Ordering::Relaxed);
+
+                // Update this thread's count for synchronization
+                thread_sent_counts[thread_id].store(local_sent, Ordering::Relaxed);
+
+                // Check if we're too far ahead of the slowest thread
+                let min_sent = thread_sent_counts
+                    .iter()
+                    .map(|c| c.load(Ordering::Relaxed))
+                    .min()
+                    .unwrap_or(0);
+
+                // If we're too far ahead, wait for others to catch up
+                while local_sent > min_sent + MAX_THREAD_LEAD
+                    && !exit_signal.load(Ordering::Relaxed)
+                {
+                    thread::sleep(Duration::from_micros(100));
+                    // Recompute minimum
+                    let new_min = thread_sent_counts
+                        .iter()
+                        .map(|c| c.load(Ordering::Relaxed))
+                        .min()
+                        .unwrap_or(0);
+                    if local_sent <= new_min + MAX_THREAD_LEAD {
+                        break;
+                    }
+                }
             }
 
             // Signal producer to stop and wait for it
@@ -897,6 +964,18 @@ fn run_benchmark(
     let global_sent_count = Arc::new(AtomicU64::new(0));
     let global_tracked_count = Arc::new(AtomicU64::new(0)); // Transactions sent during measurement
 
+    // Create per-thread schedule stats
+    let thread_schedule_stats: Vec<Arc<ThreadScheduleStats>> = (0..num_threads)
+        .map(|_| Arc::new(ThreadScheduleStats::new()))
+        .collect();
+
+    // Create per-thread sent counts for inter-thread synchronization
+    let thread_sent_counts: Arc<Vec<Arc<AtomicU64>>> = Arc::new(
+        (0..num_threads)
+            .map(|_| Arc::new(AtomicU64::new(0)))
+            .collect(),
+    );
+
     // Spawn confirmation tracker (uses tx-count based confirmation like bench-tps)
     let tracker_config = ConfirmationTrackerConfig {
         poll_interval_ms: 200,
@@ -922,6 +1001,24 @@ fn run_benchmark(
         };
         let chunk: Vec<Keypair> = keypair_iter.by_ref().take(chunk_size).collect();
         keypair_chunks.push(chunk);
+    }
+
+    // Check if we have enough sources per thread to avoid within-batch conflicts
+    let sources_per_thread = keypairs_per_thread / 2;
+    if sources_per_thread < TX_BATCH_SIZE {
+        warn!(
+            "WARNING: Only {} sources per thread but batch size is {}. \
+             This will cause {} source conflicts per batch! \
+             Increase --num-keypairs or decrease --threads.",
+            sources_per_thread,
+            TX_BATCH_SIZE,
+            TX_BATCH_SIZE - sources_per_thread
+        );
+    } else {
+        info!(
+            "  Sources per thread: {} (batch size: {} - no within-batch conflicts)",
+            sources_per_thread, TX_BATCH_SIZE
+        );
     }
 
     // Calculate TPS per thread
@@ -960,11 +1057,14 @@ fn run_benchmark(
             exit_signal.clone(),
             global_sent_count.clone(),
             global_tracked_count.clone(),
+            thread_schedule_stats[thread_id].clone(),
+            config.schedule_lateness_threshold_us,
             start_time,
             warmup_duration,
             measurement_duration,
             total_duration,
             tx_count_limit,
+            thread_sent_counts.clone(),
         );
         sender_handles.push(handle);
     }
@@ -1052,6 +1152,28 @@ fn run_benchmark(
                     elapsed.saturating_sub(warmup_duration).as_secs_f64()
                 );
             }
+
+            // Check schedule adherence (only after warmup is complete)
+            let on_schedule: u64 = thread_schedule_stats
+                .iter()
+                .map(|s| s.on_schedule.load(Ordering::Relaxed))
+                .sum();
+            let late: u64 = thread_schedule_stats
+                .iter()
+                .map(|s| s.late.load(Ordering::Relaxed))
+                .sum();
+            let total = on_schedule + late;
+
+            if !in_warmup && total > 0 {
+                let adherence = on_schedule as f64 / total as f64;
+                info!(
+                    "Schedule adherence: {:.2}% ({} on-schedule, {} late)",
+                    adherence * 100.0,
+                    on_schedule,
+                    late
+                );
+            }
+
             // No cooldown logging - sender threads exit when measurement ends
             last_progress_time = Instant::now();
         }

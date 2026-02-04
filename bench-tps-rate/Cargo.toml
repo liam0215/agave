@@ -19,6 +19,7 @@ path = "src/main.rs"
 clap = { workspace = true }
 crossbeam-channel = { workspace = true }
 log = { workspace = true }
+rand = { workspace = true }
 rayon = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-cli-config = { workspace = true }

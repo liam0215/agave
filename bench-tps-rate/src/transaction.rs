@@ -476,14 +476,16 @@ mod tests {
 
     #[test]
     fn test_generate_batch_no_circular_deps() {
-        // Verify batch generation also produces non-conflicting transactions
+        // Verify batch generation produces non-conflicting transactions
+        // when batch_size <= min(num_sources, num_dests)
         let keypairs: Vec<Keypair> = (0..100).map(|_| Keypair::new()).collect();
         let mut generator = TransactionGenerator::new(keypairs, None, false);
         let blockhash = Hash::new_unique();
 
+        // With 100 keypairs = 50 sources + 50 dests, batch of 50 should have zero conflicts
         let batch = generator.generate_batch(&blockhash, 50);
 
-        // Check all pairs for conflicts
+        // Check ALL types of conflicts
         for i in 0..batch.len() {
             for j in (i + 1)..batch.len() {
                 let tx1 = &batch[i];
@@ -494,7 +496,21 @@ mod tests {
                 let tx2_source = tx2.message.account_keys[0];
                 let tx2_dest = tx2.message.account_keys[1];
 
-                // No transaction's destination should be another's source
+                // Check for source conflicts (both transactions write to same source)
+                assert_ne!(
+                    tx1_source, tx2_source,
+                    "TX{} and TX{} conflict on source {}",
+                    i, j, tx1_source
+                );
+
+                // Check for destination conflicts (both transactions write to same dest)
+                assert_ne!(
+                    tx1_dest, tx2_dest,
+                    "TX{} and TX{} conflict on destination {}",
+                    i, j, tx1_dest
+                );
+
+                // Check for cross-pool contamination (shouldn't happen with disjoint pools)
                 assert_ne!(
                     tx1_dest, tx2_source,
                     "TX{}'s dest should not be TX{}'s source",
@@ -507,6 +523,40 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_batch_size_vs_keypairs_conflict_rate() {
+        // Demonstrate that batch_size > num_sources causes source conflicts
+        let keypairs: Vec<Keypair> = (0..20).map(|_| Keypair::new()).collect();
+        // 20 keypairs = 10 sources + 10 dests
+        let mut generator = TransactionGenerator::new(keypairs, None, false);
+        let blockhash = Hash::new_unique();
+
+        // Generate 30 transactions with only 10 sources - WILL have conflicts
+        let batch = generator.generate_batch(&blockhash, 30);
+
+        // Count source conflicts
+        let mut source_conflicts = 0;
+        for i in 0..batch.len() {
+            for j in (i + 1)..batch.len() {
+                if batch[i].message.account_keys[0] == batch[j].message.account_keys[0] {
+                    source_conflicts += 1;
+                }
+            }
+        }
+
+        // With 30 txs and 10 sources, each source is used 3 times
+        // Conflicts per source: C(3,2) = 3 pairs
+        // Total conflicts: 10 sources * 3 = 30
+        assert!(
+            source_conflicts > 0,
+            "Expected source conflicts when batch_size > num_sources"
+        );
+        println!(
+            "With 30 txs and 10 sources: {} source conflict pairs",
+            source_conflicts
+        );
     }
 
     #[test]

@@ -6505,6 +6505,7 @@ dependencies = [
  "clap 2.33.3",
  "crossbeam-channel",
  "log",
+ "rand 0.8.5",
  "rayon",
  "solana-clap-utils",
  "solana-cli-config",
