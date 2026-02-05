@@ -6511,6 +6511,7 @@ dependencies = [
  "solana-cli-config",
  "solana-client",
  "solana-connection-cache",
+ "solana-core",
  "solana-logger",
  "solana-measure",
  "solana-metrics",

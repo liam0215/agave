@@ -7,6 +7,7 @@ use {
     solana_bench_tps_rate::{
         confirmation::{spawn_confirmation_tracker, ConfirmationTrackerConfig},
         rate_limiter::RateLimiter,
+        send_batch::{fund_keys, generate_keypairs, get_latest_blockhash},
         transaction::TransactionGenerator,
     },
     solana_clap_utils::input_validators::{is_keypair, is_url_or_moniker, is_within_range},
@@ -24,7 +25,7 @@ use {
     solana_tps_client::TpsClient,
     solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     std::{
-        net::{IpAddr, Ipv4Addr, SocketAddr},
+        net::{IpAddr, Ipv4Addr},
         process::exit,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
@@ -51,7 +52,6 @@ struct Config {
     commitment_config: CommitmentConfig,
     num_keypairs: usize,
     confirmation_timeout_secs: u64,
-    faucet_addr: Option<SocketAddr>,
     client_node_id: Option<Keypair>,
     tpu_connection_pool_size: usize,
     num_lamports_per_account: u64,
@@ -78,7 +78,6 @@ impl Default for Config {
             commitment_config: CommitmentConfig::confirmed(),
             num_keypairs: 100,
             confirmation_timeout_secs: 60,
-            faucet_addr: None,
             client_node_id: None,
             tpu_connection_pool_size: 4,
             num_lamports_per_account: solana_sdk::native_token::LAMPORTS_PER_SOL,
@@ -231,14 +230,6 @@ fn build_args<'a>(version: &'_ str) -> App<'a, '_> {
                 .help("Block commitment config for confirmations"),
         )
         .arg(
-            Arg::with_name("faucet")
-                .short("d")
-                .long("faucet")
-                .value_name("HOST:PORT")
-                .takes_value(true)
-                .help("Faucet address to request SOL for funding accounts"),
-        )
-        .arg(
             Arg::with_name("bind_address")
                 .long("bind-address")
                 .value_name("HOST")
@@ -384,12 +375,6 @@ fn parse_args(matches: &ArgMatches) -> Result<Config, &'static str> {
         _ => return Err("invalid commitment config"),
     };
 
-    if let Some(faucet) = matches.value_of("faucet") {
-        args.faucet_addr = Some(
-            solana_net_utils::parse_host_port(faucet).map_err(|_| "can't parse faucet address")?,
-        );
-    }
-
     if let Some(addr) = matches.value_of("bind_address") {
         args.bind_address =
             solana_net_utils::parse_host(addr).map_err(|_| "Failed to parse bind-address")?;
@@ -471,13 +456,13 @@ fn create_client(
     }
 }
 
-fn airdrop_lamports(
-    client: &dyn TpsClient,
+fn airdrop_lamports<T: TpsClient + ?Sized>(
+    client: &T,
     id: &Keypair,
-    amount: u64,
+    needed: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let balance = client.get_balance(&id.pubkey())?;
-    if balance >= amount {
+    if balance >= needed {
         info!(
             "Authority {} already has {} SOL, skipping airdrop",
             id.pubkey(),
@@ -486,29 +471,27 @@ fn airdrop_lamports(
         return Ok(());
     }
 
-    let request_amount = amount.saturating_sub(balance);
+    let request_amount = needed.saturating_sub(balance);
     info!(
         "Requesting airdrop of {} SOL to {}",
         Sol(request_amount),
         id.pubkey()
     );
 
-    let blockhash = client.get_latest_blockhash()?;
+    let blockhash = get_latest_blockhash(client);
     match client.request_airdrop_with_blockhash(&id.pubkey(), request_amount, &blockhash) {
         Ok(sig) => {
             info!("Airdrop requested: {}", sig);
-            // Wait for airdrop to confirm
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(5));
             let new_balance = client.get_balance(&id.pubkey())?;
             info!("New balance: {} SOL", Sol(new_balance));
             Ok(())
         }
         Err(e) => {
-            // Airdrop via RPC failed, wait and check if faucet processed it anyway
             warn!("RPC airdrop request failed: {}", e);
             thread::sleep(Duration::from_secs(2));
             let new_balance = client.get_balance(&id.pubkey())?;
-            if new_balance >= amount {
+            if new_balance >= needed {
                 info!("Balance is now sufficient: {} SOL", Sol(new_balance));
                 Ok(())
             } else {
@@ -518,16 +501,44 @@ fn airdrop_lamports(
     }
 }
 
-fn fund_keypairs(
-    client: &dyn TpsClient,
+fn fund_keypairs<T: 'static + TpsClient + Send + Sync + ?Sized>(
+    client: Arc<T>,
     funding_keypair: &Keypair,
     keypairs: &[Keypair],
+    extra: u64,
     lamports_per_account: u64,
-    faucet_addr: Option<&SocketAddr>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let funding_pubkey = funding_keypair.pubkey();
-    let balance = client.get_balance(&funding_pubkey)?;
-    let total_needed = lamports_per_account * keypairs.len() as u64;
+    // Check if keypairs are already funded (80% balance check on first/last)
+    let first_balance = client.get_balance(&keypairs[0].pubkey()).unwrap_or(0);
+    let last_balance = client
+        .get_balance(&keypairs[keypairs.len() - 1].pubkey())
+        .unwrap_or(0);
+    let threshold = (lamports_per_account * 8) / 10; // 80% of target
+
+    if first_balance >= threshold && last_balance >= threshold {
+        info!(
+            "Keypairs already funded (first: {} SOL, last: {} SOL), skipping funding",
+            Sol(first_balance),
+            Sol(last_balance)
+        );
+        return Ok(());
+    }
+
+    // Calculate total needed: lamports for each keypair + extra for tree funding fees
+    let max_fee = client
+        .get_fee_for_message(&solana_sdk::message::Message::new(
+            &[system_instruction::transfer(
+                &funding_keypair.pubkey(),
+                &funding_keypair.pubkey(),
+                1,
+            )],
+            Some(&funding_keypair.pubkey()),
+        ))
+        .unwrap_or(5000);
+
+    // Total needed for tree-based funding
+    let total_keypairs = keypairs.len() as u64 + extra;
+    let total_needed = lamports_per_account * total_keypairs + max_fee * total_keypairs;
 
     info!(
         "Funding {} keypairs with {} lamports each (total needed: {} SOL)",
@@ -535,72 +546,39 @@ fn fund_keypairs(
         lamports_per_account,
         Sol(total_needed)
     );
+
+    let funding_pubkey = funding_keypair.pubkey();
+    let balance = client.get_balance(&funding_pubkey)?;
     info!("Authority {} balance: {} SOL", funding_pubkey, Sol(balance));
 
     // Request airdrop if needed
     if balance < total_needed {
-        if faucet_addr.is_some() {
-            airdrop_lamports(client, funding_keypair, total_needed)?;
-        } else {
-            return Err(format!(
-                "Insufficient balance: have {} SOL, need {} SOL. Use --faucet to request airdrop.",
-                Sol(balance),
-                Sol(total_needed)
-            )
-            .into());
-        }
+        airdrop_lamports(client.as_ref(), funding_keypair, total_needed)?;
     }
 
     // Re-check balance after potential airdrop
     let balance = client.get_balance(&funding_pubkey)?;
     if balance < total_needed {
         return Err(format!(
-            "Still insufficient balance after airdrop: have {} SOL, need {} SOL",
+            "Insufficient balance after airdrop: have {} SOL, need {} SOL",
             Sol(balance),
             Sol(total_needed)
         )
         .into());
     }
 
-    // Fund in batches to avoid transaction size limits
-    let batch_size = 20;
-    for (batch_idx, chunk) in keypairs.chunks(batch_size).enumerate() {
-        let blockhash = client.get_latest_blockhash()?;
+    // Use tree-based funding from send_batch
+    info!("Starting tree-based funding...");
+    fund_keys(
+        client,
+        funding_keypair,
+        keypairs,
+        balance, // total lamports available
+        max_fee,
+        lamports_per_account,
+    );
 
-        let instructions: Vec<_> = chunk
-            .iter()
-            .map(|kp| {
-                system_instruction::transfer(&funding_pubkey, &kp.pubkey(), lamports_per_account)
-            })
-            .collect();
-
-        let message = solana_sdk::message::Message::new(&instructions, Some(&funding_pubkey));
-        let tx = Transaction::new(&[funding_keypair], message, blockhash);
-
-        if let Err(e) = client.send_transaction(tx) {
-            warn!("Failed to send funding batch {}: {}", batch_idx, e);
-        }
-    }
-
-    // Wait for funding to settle
-    info!("Waiting for funding transactions to confirm...");
-    thread::sleep(Duration::from_secs(3));
-
-    // Verify funding
-    let mut funded = 0;
-    for kp in keypairs {
-        if let Ok(balance) = client.get_balance(&kp.pubkey()) {
-            if balance >= lamports_per_account {
-                funded += 1;
-            }
-        }
-    }
-
-    info!("Funded {}/{} keypairs", funded, keypairs.len());
-    if funded < keypairs.len() / 2 {
-        return Err(format!("Too few keypairs funded: {}/{}", funded, keypairs.len()).into());
-    }
-
+    info!("Funding complete");
     Ok(())
 }
 
@@ -721,7 +699,10 @@ fn spawn_sender_thread(
             let mut last_blockhash = match client.get_latest_blockhash() {
                 Ok(h) => h,
                 Err(e) => {
-                    error!("Thread {}: Failed to get initial blockhash: {}", thread_id, e);
+                    error!(
+                        "Thread {}: Failed to get initial blockhash: {}",
+                        thread_id, e
+                    );
                     return 0;
                 }
             };
@@ -829,7 +810,10 @@ fn spawn_sender_thread(
                     Ok(tx) => tx,
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                         // Channel temporarily empty, skip this slot
-                        warn!("Thread {}: No transaction available, skipping slot", thread_id);
+                        warn!(
+                            "Thread {}: No transaction available, skipping slot",
+                            thread_id
+                        );
                         continue;
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
@@ -932,29 +916,35 @@ fn run_benchmark(
         info!("  Using staked connection");
     }
 
-    // Generate keypairs - ensure we have at least 4 per thread
-    // (2 sources + 2 destinations for disjoint pools to avoid lock contention)
+    // Generate keypairs deterministically from funding keypair
+    // Ensure we have at least 4 per thread (2 sources + 2 destinations for disjoint pools)
     let min_keypairs = num_threads * 4;
-    let num_keypairs = config.num_keypairs.max(min_keypairs);
+    let keypair_count = config.num_keypairs.max(min_keypairs);
+
+    // Use deterministic keypair generation seeded from funding keypair
+    // generate_keypairs creates a complete tree structure for tree-based funding
+    // The actual count may be larger than requested to form a complete tree
+    let (keypairs, extra) = generate_keypairs(&config.id, keypair_count as u64);
+    let num_keypairs = keypairs.len();
     info!(
-        "Generating {} keypairs ({} sources + {} destinations per thread)...",
+        "Generated {} keypairs (requested {}, {} sources + {} destinations per thread)",
         num_keypairs,
+        keypair_count,
         num_keypairs / num_threads / 2,
         num_keypairs / num_threads / 2
     );
-    let keypairs: Vec<Keypair> = (0..num_keypairs).map(|_| Keypair::new()).collect();
 
     // Calculate minimum balance needed (rent + lamports for transfers + fees)
     let rent = client.get_minimum_balance_for_rent_exemption(0)?;
     let lamports_per_account = rent + config.num_lamports_per_account;
 
-    // Fund keypairs
+    // Fund keypairs using tree-based funding
     fund_keypairs(
-        client.as_ref(),
+        client.clone(),
         &config.id,
         &keypairs,
+        extra,
         lamports_per_account,
-        config.faucet_addr.as_ref(),
     )?;
 
     // Set up signals and global counters
