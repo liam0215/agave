@@ -203,9 +203,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use qat_shim::qat::{self, Instance};
-
-    use super::*;
+    use {
+        super::*,
+        qat_shim::qat::{self, Instance},
+    };
 
     fn setup_qat() -> Instance {
         qat_shim::qat::start_session("SSL").expect("start session failed");
