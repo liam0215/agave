@@ -308,50 +308,20 @@ mod tests {
             transaction::Transaction,
         },
         solana_vote_program::{vote_state::TowerSync, vote_transaction},
-        std::sync::mpsc::channel,
     };
 
-    fn setup_qat() -> (
-        Option<std::sync::mpsc::Sender<()>>,
-        Option<std::thread::JoinHandle<()>>,
-        Instance,
-    ) {
+    fn setup_qat() -> Instance {
         qat_shim::qat::start_session("SSL").expect("start session failed");
-        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
         let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
         inst.set_address_translation()
             .expect("set address translation failed");
         inst.start().expect("start instance failed");
-        let (tx_poll, poll) = if inst.is_polled().unwrap() {
-            let (tx, rx) = channel();
-            let inst2 = inst.clone();
-            let poll = std::thread::spawn(move || {
-                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                    let _ = inst2.clone().poll_once();
-                }
-                println!("Polling thread exiting");
-            });
-            (Some(tx), Some(poll))
-        } else {
-            (None, None)
-        };
-        (tx_poll, poll, inst)
+        inst
     }
 
-    fn qat_tear_down(
-        tx_poll: Option<std::sync::mpsc::Sender<()>>,
-        poll: Option<std::thread::JoinHandle<()>>,
-        inst: Instance,
-    ) {
-        if let Some(tx_poll) = tx_poll {
-            tx_poll
-                .send(())
-                .expect("Failed to send stop signal to polling thread");
-            poll.unwrap().join().expect("Polling thread panicked");
-        }
+    fn qat_tear_down(inst: Instance) {
         inst.stop().expect("stop instance failed");
         qat_shim::qat::stop_session().expect("stop session failed");
-        qat_shim::qat::qae_mem_destroy();
     }
 
     fn simple_deserialized_packet() -> DeserializedPacket {
@@ -383,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_unprocessed_packet_batches_insert_pop_same_packet() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let packet = simple_deserialized_packet();
         let mut unprocessed_packet_batches = UnprocessedPacketBatches::with_capacity(2);
         unprocessed_packet_batches.push(packet.clone());
@@ -395,12 +365,12 @@ mod tests {
             unprocessed_packet_batches.pop_max_n(2).unwrap(),
             vec![packet]
         );
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_unprocessed_packet_batches_insert_minimum_packet_over_capacity() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let heavier_packet_weight = 2;
         let heavier_packet = packet_with_compute_budget_details(heavier_packet_weight, 200_000);
 
@@ -427,12 +397,12 @@ mod tests {
                 .unwrap(),
             lesser_packet
         );
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_unprocessed_packet_batches_pop_max_n() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let num_packets = 10;
         let packets_iter = std::iter::repeat_with(simple_deserialized_packet).take(num_packets);
         let mut unprocessed_packet_batches =
@@ -481,7 +451,7 @@ mod tests {
         );
         assert!(unprocessed_packet_batches.is_empty());
         assert!(unprocessed_packet_batches.pop_max_n(0).is_none());
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[cfg(test)]
@@ -506,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_transaction_from_deserialized_packet() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let keypair = Keypair::new();
         let transfer_tx =
             system_transaction::transfer(&keypair, &keypair.pubkey(), 1, Hash::default());
@@ -604,6 +574,6 @@ mod tests {
             });
             assert_eq!(3, txs.count());
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 }

@@ -14,19 +14,31 @@ use {
     solana_hash::Hash,
     solana_message::{MESSAGE_HEADER_LENGTH, MESSAGE_VERSION_PREFIX},
     solana_pubkey::Pubkey,
-    solana_rayon_threadlimit::get_thread_count,
     solana_short_vec::decode_shortu16_len,
     solana_signature::Signature,
-    std::{convert::TryFrom, mem::size_of},
+    std::{convert::TryFrom, env, mem::size_of},
 };
 
 // Empirically derived to constrain max verify latency to ~8ms at lower packet counts
 pub const VERIFY_PACKET_CHUNK_SIZE: usize = 128;
 
+fn thread_count_from_env() -> usize {
+    const ENV_VAR: &str = "SOL_SIGVERIFY_THREADS";
+    const DEFAULT_THREADS: usize = 15;
+
+    let threads = env::var(ENV_VAR)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_THREADS);
+    println!("Using {} threads for sigverify", threads);
+    threads
+}
+
 lazy_static! {
     static ref PAR_THREAD_POOL: ThreadPool = rayon::ThreadPoolBuilder::new()
         // .num_threads(std::cmp::min(get_thread_count() * 2, 14))
-        .num_threads(15)
+        .num_threads(thread_count_from_env())
         .thread_name(|i| format!("solSigVerify{i:02}"))
         .build()
         .unwrap();

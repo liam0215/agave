@@ -638,53 +638,21 @@ mod tests {
             system_instruction,
             transaction::{SanitizedTransaction, Transaction},
         },
-        std::{
-            borrow::Borrow,
-            sync::{mpsc::channel, Arc},
-        },
+        std::{borrow::Borrow, sync::Arc},
     };
 
-    fn setup_qat() -> (
-        Option<std::sync::mpsc::Sender<()>>,
-        Option<std::thread::JoinHandle<()>>,
-        Instance,
-    ) {
+    fn setup_qat() -> Instance {
         qat_shim::qat::start_session("SSL").expect("start session failed");
-        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
         let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
         inst.set_address_translation()
             .expect("set address translation failed");
         inst.start().expect("start instance failed");
-        let (tx_poll, poll) = if inst.is_polled().unwrap() {
-            let (tx, rx) = channel();
-            let inst2 = inst.clone();
-            let poll = std::thread::spawn(move || {
-                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                    let _ = inst2.clone().poll_once();
-                }
-                println!("Polling thread exiting");
-            });
-            (Some(tx), Some(poll))
-        } else {
-            (None, None)
-        };
-        (tx_poll, poll, inst)
+        inst
     }
 
-    fn qat_tear_down(
-        tx_poll: Option<std::sync::mpsc::Sender<()>>,
-        poll: Option<std::thread::JoinHandle<()>>,
-        inst: Instance,
-    ) {
-        if let Some(tx_poll) = tx_poll {
-            tx_poll
-                .send(())
-                .expect("Failed to send stop signal to polling thread");
-            poll.unwrap().join().expect("Polling thread panicked");
-        }
+    fn qat_tear_down(inst: Instance) {
         inst.stop().expect("stop instance failed");
         qat_shim::qat::stop_session().expect("stop session failed");
-        qat_shim::qat::qae_mem_destroy();
     }
 
     #[allow(clippy::type_complexity)]
@@ -798,7 +766,7 @@ mod tests {
 
     #[test]
     fn test_schedule_disconnected_channel() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, _finished_work_sender) = create_test_frame(1);
         let mut container = create_container([(&Keypair::new(), &[Pubkey::new_unique()], 1, 1)]);
 
@@ -807,12 +775,12 @@ mod tests {
             scheduler.schedule(&mut container, test_pre_graph_filter, test_pre_lock_filter),
             Err(SchedulerError::DisconnectedSendChannel(_))
         );
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_schedule_single_threaded_no_conflicts() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, _finished_work_sender) = create_test_frame(1);
         let mut container = create_container([
             (&Keypair::new(), &[Pubkey::new_unique()], 1, 1),
@@ -825,12 +793,12 @@ mod tests {
         assert_eq!(scheduling_summary.num_scheduled, 2);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
         assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1, 0]]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_schedule_single_threaded_conflict() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, _finished_work_sender) = create_test_frame(1);
         let pubkey = Pubkey::new_unique();
         let mut container = create_container([
@@ -844,12 +812,12 @@ mod tests {
         assert_eq!(scheduling_summary.num_scheduled, 2);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
         assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1], vec![0]]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_schedule_consume_single_threaded_multi_batch() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, _finished_work_sender) = create_test_frame(1);
         let mut container = create_container(
             (0..4 * TARGET_NUM_TRANSACTIONS_PER_BATCH)
@@ -871,12 +839,12 @@ mod tests {
             .map(|work| work.ids.len())
             .collect();
         assert_eq!(thread0_work_counts, [TARGET_NUM_TRANSACTIONS_PER_BATCH; 4]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_schedule_simple_thread_selection() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, _finished_work_sender) = create_test_frame(2);
         let mut container =
             create_container((0..4).map(|i| (Keypair::new(), [Pubkey::new_unique()], 1, i)));
@@ -888,12 +856,12 @@ mod tests {
         assert_eq!(scheduling_summary.num_unschedulable, 0);
         assert_eq!(collect_work(&work_receivers[0]).1, [vec![3, 1]]);
         assert_eq!(collect_work(&work_receivers[1]).1, [vec![2, 0]]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_schedule_priority_guard() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, finished_work_sender) = create_test_frame(2);
         // intentionally shorten the look-ahead window to cause unschedulable conflicts
         scheduler.config.look_ahead_window_size = 2;
@@ -955,12 +923,12 @@ mod tests {
         assert_eq!(scheduling_summary.num_unschedulable, 0);
 
         assert_eq!(collect_work(&work_receivers[1]).1, [vec![4], vec![5]]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_schedule_pre_lock_filter() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (mut scheduler, work_receivers, _finished_work_sender) = create_test_frame(1);
         let pubkey = Pubkey::new_unique();
         let keypair = Keypair::new();
@@ -980,6 +948,6 @@ mod tests {
         assert_eq!(scheduling_summary.num_scheduled, 2);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
         assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![2], vec![0]]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 }

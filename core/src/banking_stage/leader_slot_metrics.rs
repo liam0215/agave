@@ -1093,53 +1093,21 @@ mod tests {
         qat_shim::qat::{self, Instance},
         solana_pubkey::Pubkey,
         solana_runtime::{bank::Bank, genesis_utils::create_genesis_config},
-        std::{
-            mem,
-            sync::{mpsc::channel, Arc},
-        },
+        std::{mem, sync::Arc},
     };
 
-    fn setup_qat() -> (
-        Option<std::sync::mpsc::Sender<()>>,
-        Option<std::thread::JoinHandle<()>>,
-        Instance,
-    ) {
+    fn setup_qat() -> Instance {
         qat_shim::qat::start_session("SSL").expect("start session failed");
-        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
         let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
         inst.set_address_translation()
             .expect("set address translation failed");
         inst.start().expect("start instance failed");
-        let (tx_poll, poll) = if inst.is_polled().unwrap() {
-            let (tx, rx) = channel();
-            let inst2 = inst.clone();
-            let poll = std::thread::spawn(move || {
-                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                    let _ = inst2.clone().poll_once();
-                }
-                println!("Polling thread exiting");
-            });
-            (Some(tx), Some(poll))
-        } else {
-            (None, None)
-        };
-        (tx_poll, poll, inst)
+        inst
     }
 
-    fn qat_tear_down(
-        tx_poll: Option<std::sync::mpsc::Sender<()>>,
-        poll: Option<std::thread::JoinHandle<()>>,
-        inst: Instance,
-    ) {
-        if let Some(tx_poll) = tx_poll {
-            tx_poll
-                .send(())
-                .expect("Failed to send stop signal to polling thread");
-            poll.unwrap().join().expect("Polling thread panicked");
-        }
+    fn qat_tear_down(inst: Instance) {
         inst.stop().expect("stop instance failed");
         qat_shim::qat::stop_session().expect("stop session failed");
-        qat_shim::qat::qae_mem_destroy();
     }
 
     struct TestSlotBoundaryComponents {
@@ -1183,7 +1151,7 @@ mod tests {
 
     #[test]
     pub fn test_update_on_leader_slot_boundary_not_leader_to_not_leader() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let TestSlotBoundaryComponents {
             mut leader_slot_metrics_tracker,
             ..
@@ -1196,12 +1164,12 @@ mod tests {
         );
         assert!(leader_slot_metrics_tracker.apply_action(action).is_none());
         assert!(leader_slot_metrics_tracker.leader_slot_metrics.is_none());
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     pub fn test_update_on_leader_slot_boundary_not_leader_to_leader() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let TestSlotBoundaryComponents {
             first_poh_recorder_bank,
             mut leader_slot_metrics_tracker,
@@ -1219,12 +1187,12 @@ mod tests {
         );
         assert!(leader_slot_metrics_tracker.apply_action(action).is_none());
         assert!(leader_slot_metrics_tracker.leader_slot_metrics.is_some());
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     pub fn test_update_on_leader_slot_boundary_leader_to_not_leader() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let TestSlotBoundaryComponents {
             first_bank,
             first_poh_recorder_bank,
@@ -1262,12 +1230,12 @@ mod tests {
                 mem::discriminant(&action)
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     pub fn test_update_on_leader_slot_boundary_leader_to_leader_same_slot() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let TestSlotBoundaryComponents {
             first_bank,
             first_poh_recorder_bank,
@@ -1306,12 +1274,12 @@ mod tests {
             );
             assert!(leader_slot_metrics_tracker.leader_slot_metrics.is_none());
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     pub fn test_update_on_leader_slot_boundary_leader_to_leader_bigger_slot() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let TestSlotBoundaryComponents {
             first_bank,
             first_poh_recorder_bank,
@@ -1356,12 +1324,12 @@ mod tests {
             );
             assert!(leader_slot_metrics_tracker.leader_slot_metrics.is_none());
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     pub fn test_update_on_leader_slot_boundary_leader_to_leader_smaller_slot() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let TestSlotBoundaryComponents {
             first_bank,
             first_poh_recorder_bank,
@@ -1405,6 +1373,6 @@ mod tests {
             );
             assert!(leader_slot_metrics_tracker.leader_slot_metrics.is_none());
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 }

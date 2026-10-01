@@ -238,8 +238,8 @@ dirs-next = "2.0.0"
 dlopen2 = "0.5.0"
 dyn-clone = "1.0.18"
 eager = "0.1.0"
-ed25519-dalek = { path = "/data2/liam/ed25519-dalek" }
-ed25519-dalek-bip32 = { path = "/data2/liam/ed25519-dalek-bip32" }
+ed25519-dalek = { path = "../ed25519-dalek" }
+ed25519-dalek-bip32 = { path = "../ed25519-dalek-bip32" }
 enum-iterator = "1.5.0"
 env_logger = "0.9.3"
 etcd-client = "0.11.1"
@@ -357,24 +357,24 @@ smallvec = "1.13.2"
 smpl_jwt = "0.7.1"
 socket2 = "0.5.8"
 soketto = "0.7"
-solana-account = { path = "/data2/liam/solana-sdk/account" }
+solana-account = { path = "../solana-sdk/account" }
 solana-account-decoder = { path = "account-decoder", version = "=2.2.18" }
 solana-account-decoder-client-types = { path = "account-decoder-client-types", version = "=2.2.18" }
-solana-account-info = { path = "/data2/liam/solana-sdk/account-info" }
+solana-account-info = { path = "../solana-sdk/account-info" }
 solana-accounts-db = { path = "accounts-db", version = "=2.2.18" }
 solana-address-lookup-table-interface = "2.2.2"
 solana-address-lookup-table-program = { path = "programs/address-lookup-table", version = "=2.2.18" }
-solana-atomic-u64 = { path = "/data2/liam/solana-sdk/atomic-u64" }
+solana-atomic-u64 = { path = "../solana-sdk/atomic-u64" }
 solana-banks-client = { path = "banks-client", version = "=2.2.18" }
 solana-banks-interface = { path = "banks-interface", version = "=2.2.18" }
 solana-banks-server = { path = "banks-server", version = "=2.2.18" }
 solana-bench-tps = { path = "bench-tps", version = "=2.2.18" }
-solana-big-mod-exp = { path = "/data2/liam/solana-sdk/big-mod-exp" }
-solana-bincode = { path = "/data2/liam/solana-sdk/bincode" }
-solana-blake3-hasher = { path = "/data2/liam/solana-sdk/blake3-hasher" }
+solana-big-mod-exp = { path = "../solana-sdk/big-mod-exp" }
+solana-bincode = { path = "../solana-sdk/bincode" }
+solana-blake3-hasher = { path = "../solana-sdk/blake3-hasher" }
 solana-bloom = { path = "bloom", version = "=2.2.18" }
 solana-bn254 = "2.2.2"
-solana-borsh = { path = "/data2/liam/solana-sdk/borsh" }
+solana-borsh = { path = "../solana-sdk/borsh" }
 solana-bpf-loader-program = { path = "programs/bpf_loader", version = "=2.2.18" }
 solana-bucket-map = { path = "bucket_map", version = "=2.2.18" }
 solana-builtins = { path = "builtins", version = "=2.2.18" }
@@ -385,130 +385,130 @@ solana-cli = { path = "cli", version = "=2.2.18" }
 solana-cli-config = { path = "cli-config", version = "=2.2.18" }
 solana-cli-output = { path = "cli-output", version = "=2.2.18" }
 solana-client = { path = "client", version = "=2.2.18" }
-solana-client-traits = { path = "/data2/liam/solana-sdk/client-traits" }
-solana-clock = { path = "/data2/liam/solana-sdk/clock" }
-solana-cluster-type = { path = "/data2/liam/solana-sdk/cluster-type" }
-solana-commitment-config = { path = "/data2/liam/solana-sdk/commitment-config" }
+solana-client-traits = { path = "../solana-sdk/client-traits" }
+solana-clock = { path = "../solana-sdk/clock" }
+solana-cluster-type = { path = "../solana-sdk/cluster-type" }
+solana-commitment-config = { path = "../solana-sdk/commitment-config" }
 solana-compute-budget = { path = "compute-budget", version = "=2.2.18" }
 solana-compute-budget-instruction = { path = "compute-budget-instruction", version = "=2.2.18" }
-solana-compute-budget-interface = { path = "/data2/liam/solana-sdk/compute-budget-interface" }
+solana-compute-budget-interface = { path = "../solana-sdk/compute-budget-interface" }
 solana-compute-budget-program = { path = "programs/compute-budget", version = "=2.2.18" }
 solana-config-program = { path = "programs/config", version = "=2.2.18" }
 solana-connection-cache = { path = "connection-cache", version = "=2.2.18", default-features = false }
 solana-core = { path = "core", version = "=2.2.18" }
 solana-cost-model = { path = "cost-model", version = "=2.2.18" }
-solana-cpi = { path = "/data2/liam/solana-sdk/cpi" }
+solana-cpi = { path = "../solana-sdk/cpi" }
 solana-curve25519 = { path = "curves/curve25519", version = "=2.2.18" }
-solana-signature = { default-features = false, path = "/data2/liam/solana-sdk/signature" }
-solana-decode-error = { path = "/data2/liam/solana-sdk/decode-error" }
-solana-define-syscall = { path = "/data2/liam/solana-sdk/define-syscall" }
-solana-derivation-path = { path = "/data2/liam/solana-sdk/derivation-path" }
+solana-signature = { default-features = false, path = "../solana-sdk/signature" }
+solana-decode-error = { path = "../solana-sdk/decode-error" }
+solana-define-syscall = { path = "../solana-sdk/define-syscall" }
+solana-derivation-path = { path = "../solana-sdk/derivation-path" }
 solana-download-utils = { path = "download-utils", version = "=2.2.18" }
 solana-ed25519-program = "2.2.2"
 solana-entry = { path = "entry", version = "=2.2.18" }
-solana-epoch-info = { path = "/data2/liam/solana-sdk/epoch-info" }
-solana-epoch-rewards = { path = "/data2/liam/solana-sdk/epoch-rewards" }
-solana-epoch-rewards-hasher = { path = "/data2/liam/solana-sdk/epoch-rewards-hasher" }
-solana-epoch-schedule = { path = "/data2/liam/solana-sdk/epoch-schedule" }
-solana-example-mocks = { path = "/data2/liam/solana-sdk/example-mocks" }
+solana-epoch-info = { path = "../solana-sdk/epoch-info" }
+solana-epoch-rewards = { path = "../solana-sdk/epoch-rewards" }
+solana-epoch-rewards-hasher = { path = "../solana-sdk/epoch-rewards-hasher" }
+solana-epoch-schedule = { path = "../solana-sdk/epoch-schedule" }
+solana-example-mocks = { path = "../solana-sdk/example-mocks" }
 solana-faucet = { path = "faucet", version = "=2.2.18" }
 solana-feature-gate-client = "0.0.2"
-solana-feature-gate-interface = { path = "/data2/liam/solana-sdk/feature-gate-interface" }
+solana-feature-gate-interface = { path = "../solana-sdk/feature-gate-interface" }
 solana-fee = { path = "fee", version = "=2.2.18" }
-solana-fee-calculator = { path = "/data2/liam/solana-sdk/fee-calculator" }
-solana-fee-structure = { path = "/data2/liam/solana-sdk/fee-structure" }
-solana-file-download = { path = "/data2/liam/solana-sdk/file-download" }
-solana-frozen-abi = { path = "/data2/liam/solana-sdk/frozen-abi" }
-solana-frozen-abi-macro = { path = "/data2/liam/solana-sdk/frozen-abi-macro" }
+solana-fee-calculator = { path = "../solana-sdk/fee-calculator" }
+solana-fee-structure = { path = "../solana-sdk/fee-structure" }
+solana-file-download = { path = "../solana-sdk/file-download" }
+solana-frozen-abi = { path = "../solana-sdk/frozen-abi" }
+solana-frozen-abi-macro = { path = "../solana-sdk/frozen-abi-macro" }
 solana-genesis = { path = "genesis", version = "=2.2.18" }
-solana-genesis-config = { path = "/data2/liam/solana-sdk/genesis-config" }
+solana-genesis-config = { path = "../solana-sdk/genesis-config" }
 solana-genesis-utils = { path = "genesis-utils", version = "=2.2.18" }
 solana-geyser-plugin-manager = { path = "geyser-plugin-manager", version = "=2.2.18" }
 solana-gossip = { path = "gossip", version = "=2.2.18" }
-solana-hard-forks = { path = "/data2/liam/solana-sdk/hard-forks" }
-solana-hash = { path = "/data2/liam/solana-sdk/hash" }
-solana-inflation = { path = "/data2/liam/solana-sdk/inflation" }
+solana-hard-forks = { path = "../solana-sdk/hard-forks" }
+solana-hash = { path = "../solana-sdk/hash" }
+solana-inflation = { path = "../solana-sdk/inflation" }
 solana-inline-spl = { path = "inline-spl", version = "=2.2.18" }
-solana-instruction = { path = "/data2/liam/solana-sdk/instruction" }
-solana-instructions-sysvar = { path = "/data2/liam/solana-sdk/instructions-sysvar" }
-solana-keccak-hasher = { path = "/data2/liam/solana-sdk/keccak-hasher" }
-solana-keypair = { path = "/data2/liam/solana-sdk/keypair" }
-solana-last-restart-slot = { path = "/data2/liam/solana-sdk/last-restart-slot" }
+solana-instruction = { path = "../solana-sdk/instruction" }
+solana-instructions-sysvar = { path = "../solana-sdk/instructions-sysvar" }
+solana-keccak-hasher = { path = "../solana-sdk/keccak-hasher" }
+solana-keypair = { path = "../solana-sdk/keypair" }
+solana-last-restart-slot = { path = "../solana-sdk/last-restart-slot" }
 solana-lattice-hash = { path = "lattice-hash", version = "=2.2.18" }
 solana-ledger = { path = "ledger", version = "=2.2.18" }
-solana-loader-v2-interface = { path = "/data2/liam/solana-sdk/loader-v2-interface" }
+solana-loader-v2-interface = { path = "../solana-sdk/loader-v2-interface" }
 solana-loader-v3-interface = "5.0.0"
-solana-loader-v4-interface = { path = "/data2/liam/solana-sdk/loader-v4-interface" }
+solana-loader-v4-interface = { path = "../solana-sdk/loader-v4-interface" }
 solana-loader-v4-program = { path = "programs/loader-v4", version = "=2.2.18" }
 solana-local-cluster = { path = "local-cluster", version = "=2.2.18" }
 solana-log-collector = { path = "log-collector", version = "=2.2.18" }
 solana-logger = "2.3.1"
 solana-measure = { path = "measure", version = "=2.2.18" }
 solana-merkle-tree = { path = "merkle-tree", version = "=2.2.18" }
-solana-message = { path = "/data2/liam/solana-sdk/message" }
+solana-message = { path = "../solana-sdk/message" }
 solana-metrics = { path = "metrics", version = "=2.2.18" }
-solana-msg = { path = "/data2/liam/solana-sdk/msg" }
-solana-native-token = { path = "/data2/liam/solana-sdk/native-token" }
+solana-msg = { path = "../solana-sdk/msg" }
+solana-native-token = { path = "../solana-sdk/native-token" }
 solana-net-utils = { path = "net-utils", version = "=2.2.18" }
 solana-nohash-hasher = "0.2.1"
-solana-nonce = { path = "/data2/liam/solana-sdk/nonce" }
-solana-nonce-account = { path = "/data2/liam/solana-sdk/nonce-account" }
+solana-nonce = { path = "../solana-sdk/nonce" }
+solana-nonce-account = { path = "../solana-sdk/nonce-account" }
 solana-notifier = { path = "notifier", version = "=2.2.18" }
-solana-offchain-message = { path = "/data2/liam/solana-sdk/offchain-message" }
-solana-package-metadata = { path = "/data2/liam/solana-sdk/package-metadata" }
-solana-package-metadata-macro = { path = "/data2/liam/solana-sdk/package-metadata-macro" }
-solana-packet = { path = "/data2/liam/solana-sdk/packet" }
+solana-offchain-message = { path = "../solana-sdk/offchain-message" }
+solana-package-metadata = { path = "../solana-sdk/package-metadata" }
+solana-package-metadata-macro = { path = "../solana-sdk/package-metadata-macro" }
+solana-packet = { path = "../solana-sdk/packet" }
 solana-perf = { path = "perf", version = "=2.2.18" }
 solana-poh = { path = "poh", version = "=2.2.18" }
-solana-poh-config = { path = "/data2/liam/solana-sdk/poh-config" }
+solana-poh-config = { path = "../solana-sdk/poh-config" }
 solana-poseidon = { path = "poseidon", version = "=2.2.18" }
-solana-precompile-error = { path = "/data2/liam/solana-sdk/precompile-error" }
-solana-presigner = { path = "/data2/liam/solana-sdk/presigner" }
-solana-program = { path = "/data2/liam/solana-sdk/program", default-features = false }
-solana-program-entrypoint = { path = "/data2/liam/solana-sdk/program-entrypoint" }
-solana-program-error = { path = "/data2/liam/solana-sdk/program-error" }
-solana-program-memory = { path = "/data2/liam/solana-sdk/program-memory" }
-solana-program-option = { path = "/data2/liam/solana-sdk/program-option" }
-solana-program-pack = { path = "/data2/liam/solana-sdk/program-pack" }
+solana-precompile-error = { path = "../solana-sdk/precompile-error" }
+solana-presigner = { path = "../solana-sdk/presigner" }
+solana-program = { path = "../solana-sdk/program", default-features = false }
+solana-program-entrypoint = { path = "../solana-sdk/program-entrypoint" }
+solana-program-error = { path = "../solana-sdk/program-error" }
+solana-program-memory = { path = "../solana-sdk/program-memory" }
+solana-program-option = { path = "../solana-sdk/program-option" }
+solana-program-pack = { path = "../solana-sdk/program-pack" }
 solana-program-runtime = { path = "program-runtime", version = "=2.2.18" }
 solana-program-test = { path = "program-test", version = "=2.2.18" }
-solana-pubkey = { path = "/data2/liam/solana-sdk/pubkey", default-features = false }
+solana-pubkey = { path = "../solana-sdk/pubkey", default-features = false }
 solana-pubsub-client = { path = "pubsub-client", version = "=2.2.18" }
 solana-quic-client = { path = "quic-client", version = "=2.2.18" }
-solana-quic-definitions = { path = "/data2/liam/solana-sdk/quic-definitions" }
+solana-quic-definitions = { path = "../solana-sdk/quic-definitions" }
 solana-rayon-threadlimit = { path = "rayon-threadlimit", version = "=2.2.18" }
 solana-remote-wallet = { path = "remote-wallet", version = "=2.2.18", default-features = false }
-solana-rent = { path = "/data2/liam/solana-sdk/rent" }
-solana-rent-collector = { path = "/data2/liam/solana-sdk/rent-collector" }
-solana-rent-debits = { path = "/data2/liam/solana-sdk/rent-debits" }
-solana-reward-info = { path = "/data2/liam/solana-sdk/reward-info" }
+solana-rent = { path = "../solana-sdk/rent" }
+solana-rent-collector = { path = "../solana-sdk/rent-collector" }
+solana-rent-debits = { path = "../solana-sdk/rent-debits" }
+solana-reward-info = { path = "../solana-sdk/reward-info" }
 solana-rpc = { path = "rpc", version = "=2.2.18" }
 solana-rpc-client = { path = "rpc-client", version = "=2.2.18", default-features = false }
 solana-rpc-client-api = { path = "rpc-client-api", version = "=2.2.18" }
 solana-rpc-client-nonce-utils = { path = "rpc-client-nonce-utils", version = "=2.2.18" }
 solana-runtime = { path = "runtime", version = "=2.2.18" }
 solana-runtime-transaction = { path = "runtime-transaction", version = "=2.2.18" }
-solana-sanitize = { path = "/data2/liam/solana-sdk/sanitize" }
+solana-sanitize = { path = "../solana-sdk/sanitize" }
 solana-sbpf = "=0.10.1"
-solana-sdk = { path = "/data2/liam/solana-sdk/sdk" }
-solana-sdk-ids = { path = "/data2/liam/solana-sdk/sdk-ids" }
-solana-sdk-macro = { path = "/data2/liam/solana-sdk/sdk-macro" }
-solana-secp256k1-program = { path = "/data2/liam/solana-sdk/secp256k1-program" }
-solana-secp256k1-recover = { path = "/data2/liam/solana-sdk/secp256k1-recover" }
+solana-sdk = { path = "../solana-sdk/sdk" }
+solana-sdk-ids = { path = "../solana-sdk/sdk-ids" }
+solana-sdk-macro = { path = "../solana-sdk/sdk-macro" }
+solana-secp256k1-program = { path = "../solana-sdk/secp256k1-program" }
+solana-secp256k1-recover = { path = "../solana-sdk/secp256k1-recover" }
 solana-secp256r1-program = "2.2.2"
-solana-seed-derivable = { path = "/data2/liam/solana-sdk/seed-derivable" }
-solana-seed-phrase = { path = "/data2/liam/solana-sdk/seed-phrase" }
+solana-seed-derivable = { path = "../solana-sdk/seed-derivable" }
+solana-seed-phrase = { path = "../solana-sdk/seed-phrase" }
 solana-send-transaction-service = { path = "send-transaction-service", version = "=2.2.18" }
-solana-serde = { path = "/data2/liam/solana-sdk/serde" }
-solana-serde-varint = { path = "/data2/liam/solana-sdk/serde-varint" }
-solana-serialize-utils = { path = "/data2/liam/solana-sdk/serialize-utils" }
-solana-sha256-hasher = { path = "/data2/liam/solana-sdk/sha256-hasher" }
-solana-short-vec = { path = "/data2/liam/solana-sdk/short-vec" }
-solana-shred-version = { path = "/data2/liam/solana-sdk/shred-version" }
-solana-signer = { path = "/data2/liam/solana-sdk/signer" }
-solana-slot-hashes = { path = "/data2/liam/solana-sdk/slot-hashes" }
-solana-slot-history = { path = "/data2/liam/solana-sdk/slot-history" }
-solana-stable-layout = { path = "/data2/liam/solana-sdk/stable-layout" }
+solana-serde = { path = "../solana-sdk/serde" }
+solana-serde-varint = { path = "../solana-sdk/serde-varint" }
+solana-serialize-utils = { path = "../solana-sdk/serialize-utils" }
+solana-sha256-hasher = { path = "../solana-sdk/sha256-hasher" }
+solana-short-vec = { path = "../solana-sdk/short-vec" }
+solana-shred-version = { path = "../solana-sdk/shred-version" }
+solana-signer = { path = "../solana-sdk/signer" }
+solana-slot-hashes = { path = "../solana-sdk/slot-hashes" }
+solana-slot-history = { path = "../solana-sdk/slot-history" }
+solana-stable-layout = { path = "../solana-sdk/stable-layout" }
 solana-stake-interface = { version = "1.2.1" }
 solana-stake-program = { path = "programs/stake", version = "=2.2.18" }
 solana-storage-bigtable = { path = "storage-bigtable", version = "=2.2.18" }
@@ -520,20 +520,20 @@ solana-svm-rent-collector = { path = "svm-rent-collector", version = "=2.2.18" }
 solana-svm-transaction = { path = "svm-transaction", version = "=2.2.18" }
 solana-system-interface = "1.0"
 solana-system-program = { path = "programs/system", version = "=2.2.18" }
-solana-system-transaction = { path = "/data2/liam/solana-sdk/system-transaction" }
-solana-sysvar = { path = "/data2/liam/solana-sdk/sysvar" }
-solana-sysvar-id = { path = "/data2/liam/solana-sdk/sysvar-id" }
+solana-system-transaction = { path = "../solana-sdk/system-transaction" }
+solana-sysvar = { path = "../solana-sdk/sysvar" }
+solana-sysvar-id = { path = "../solana-sdk/sysvar-id" }
 solana-test-validator = { path = "test-validator", version = "=2.2.18" }
 solana-thin-client = { path = "thin-client", version = "=2.2.18" }
-solana-time-utils = { path = "/data2/liam/solana-sdk/time-utils" }
+solana-time-utils = { path = "../solana-sdk/time-utils" }
 solana-timings = { path = "timings", version = "=2.2.18" }
 solana-tls-utils = { path = "tls-utils", version = "=2.2.18" }
 solana-tps-client = { path = "tps-client", version = "=2.2.18" }
 solana-tpu-client = { path = "tpu-client", version = "=2.2.18", default-features = false }
 solana-tpu-client-next = { path = "tpu-client-next", version = "=2.2.18" }
-solana-transaction = { path = "/data2/liam/solana-sdk/transaction" }
+solana-transaction = { path = "../solana-sdk/transaction" }
 solana-transaction-context = { path = "transaction-context", version = "=2.2.18", features = [ "bincode" ] }
-solana-transaction-error = { path = "/data2/liam/solana-sdk/transaction-error" }
+solana-transaction-error = { path = "../solana-sdk/transaction-error" }
 solana-transaction-metrics-tracker = { path = "transaction-metrics-tracker", version = "=2.2.18" }
 solana-transaction-status = { path = "transaction-status", version = "=2.2.18" }
 solana-transaction-status-client-types = { path = "transaction-status-client-types", version = "=2.2.18" }
@@ -542,10 +542,10 @@ solana-type-overrides = { path = "type-overrides", version = "=2.2.18" }
 solana-udp-client = { path = "udp-client", version = "=2.2.18" }
 solana-unified-scheduler-logic = { path = "unified-scheduler-logic", version = "=2.2.18" }
 solana-unified-scheduler-pool = { path = "unified-scheduler-pool", version = "=2.2.18" }
-solana-validator-exit = { path = "/data2/liam/solana-sdk/validator-exit" }
+solana-validator-exit = { path = "../solana-sdk/validator-exit" }
 solana-version = { path = "version", version = "=2.2.18" }
 solana-vote = { path = "vote", version = "=2.2.18" }
-solana-vote-interface = { path = "/data2/liam/solana-sdk/vote-interface" }
+solana-vote-interface = { path = "../solana-sdk/vote-interface" }
 solana-vote-program = { path = "programs/vote", version = "=2.2.18", default-features = false }
 solana-wen-restart = { path = "wen-restart", version = "=2.2.18" }
 solana-zk-elgamal-proof-program = { path = "programs/zk-elgamal-proof", version = "=2.2.18" }
@@ -602,7 +602,7 @@ x509-parser = "0.14.0"
 # See "zeroize versioning issues" below if you are updating this version.
 zeroize = { version = "1.7", default-features = false }
 zstd = "0.13.2"
-qat-shim = { path = "/data/liam/qat-shim" }
+qat-shim = { path = "../qat-shim" }
 
 [profile.release-with-debug]
 inherits = "release"
@@ -664,168 +664,168 @@ crossbeam-epoch = { git = "https://github.com/anza-xyz/crossbeam", rev = "fd279d
 solana-curve25519 = { path = "curves/curve25519" }
 solana-transaction-context = { path = "transaction-context" }
 solana-zk-sdk = { path = "zk-sdk" }
-solana-signature = { path = "/data2/liam/solana-sdk/signature" }
-solana-sanitize = { path = "/data2/liam/solana-sdk/sanitize" }
-ed25519-dalek = { path = "/data2/liam/ed25519-dalek" }
-ed25519-dalek-bip32 = { path = "/data2/liam/ed25519-dalek-bip32" }
-qat-shim = { path = "/data/liam/qat-shim" }
-solana-keypair = { path = "/data2/liam/solana-sdk/keypair" }
-solana-pubkey = { path = "/data2/liam/solana-sdk/pubkey" }
-solana-signer = { path = "/data2/liam/solana-sdk/signer" }
-solana-derivation-path = { path = "/data2/liam/solana-sdk/derivation-path" }
-solana-seed-derivable = { path = "/data2/liam/solana-sdk/seed-derivable" }
-solana-transaction = { path = "/data2/liam/solana-sdk/transaction" }
-solana-instruction = { path = "/data2/liam/solana-sdk/instruction" }
-solana-vote-interface = { path = "/data2/liam/solana-sdk/vote-interface" }
-solana-message = { path = "/data2/liam/solana-sdk/message" }
-solana-hash = { path = "/data2/liam/solana-sdk/hash" }
-solana-transaction-error = { path = "/data2/liam/solana-sdk/transaction-error" }
-solana-clock = { path = "/data2/liam/solana-sdk/clock" }
-solana-account-info = { path = "/data2/liam/solana-sdk/account-info" }
+solana-signature = { path = "../solana-sdk/signature" }
+solana-sanitize = { path = "../solana-sdk/sanitize" }
+ed25519-dalek = { path = "../ed25519-dalek" }
+ed25519-dalek-bip32 = { path = "../ed25519-dalek-bip32" }
+qat-shim = { path = "../qat-shim" }
+solana-keypair = { path = "../solana-sdk/keypair" }
+solana-pubkey = { path = "../solana-sdk/pubkey" }
+solana-signer = { path = "../solana-sdk/signer" }
+solana-derivation-path = { path = "../solana-sdk/derivation-path" }
+solana-seed-derivable = { path = "../solana-sdk/seed-derivable" }
+solana-transaction = { path = "../solana-sdk/transaction" }
+solana-instruction = { path = "../solana-sdk/instruction" }
+solana-vote-interface = { path = "../solana-sdk/vote-interface" }
+solana-message = { path = "../solana-sdk/message" }
+solana-hash = { path = "../solana-sdk/hash" }
+solana-transaction-error = { path = "../solana-sdk/transaction-error" }
+solana-clock = { path = "../solana-sdk/clock" }
+solana-account-info = { path = "../solana-sdk/account-info" }
 
-solana-atomic-u64 = { path = "/data2/liam/solana-sdk/atomic-u64" }
+solana-atomic-u64 = { path = "../solana-sdk/atomic-u64" }
 
-solana-big-mod-exp = { path = "/data2/liam/solana-sdk/big-mod-exp" }
+solana-big-mod-exp = { path = "../solana-sdk/big-mod-exp" }
 
-solana-bincode = { path = "/data2/liam/solana-sdk/bincode" }
+solana-bincode = { path = "../solana-sdk/bincode" }
 
-solana-blake3-hasher = { path = "/data2/liam/solana-sdk/blake3-hasher" }
+solana-blake3-hasher = { path = "../solana-sdk/blake3-hasher" }
 
-solana-borsh = { path = "/data2/liam/solana-sdk/borsh" }
+solana-borsh = { path = "../solana-sdk/borsh" }
 
-solana-client-traits = { path = "/data2/liam/solana-sdk/client-traits" }
+solana-client-traits = { path = "../solana-sdk/client-traits" }
 
-solana-cluster-type = { path = "/data2/liam/solana-sdk/cluster-type" }
+solana-cluster-type = { path = "../solana-sdk/cluster-type" }
 
-solana-commitment-config = { path = "/data2/liam/solana-sdk/commitment-config" }
+solana-commitment-config = { path = "../solana-sdk/commitment-config" }
 
-solana-compute-budget-interface = { path = "/data2/liam/solana-sdk/compute-budget-interface" }
+solana-compute-budget-interface = { path = "../solana-sdk/compute-budget-interface" }
 
-solana-cpi = { path = "/data2/liam/solana-sdk/cpi" }
+solana-cpi = { path = "../solana-sdk/cpi" }
 
-solana-decode-error = { path = "/data2/liam/solana-sdk/decode-error" }
+solana-decode-error = { path = "../solana-sdk/decode-error" }
 
-solana-define-syscall = { path = "/data2/liam/solana-sdk/define-syscall" }
+solana-define-syscall = { path = "../solana-sdk/define-syscall" }
 
-solana-epoch-info = { path = "/data2/liam/solana-sdk/epoch-info" }
+solana-epoch-info = { path = "../solana-sdk/epoch-info" }
 
-solana-epoch-rewards = { path = "/data2/liam/solana-sdk/epoch-rewards" }
+solana-epoch-rewards = { path = "../solana-sdk/epoch-rewards" }
 
-solana-epoch-rewards-hasher = { path = "/data2/liam/solana-sdk/epoch-rewards-hasher" }
+solana-epoch-rewards-hasher = { path = "../solana-sdk/epoch-rewards-hasher" }
 
-solana-epoch-schedule = { path = "/data2/liam/solana-sdk/epoch-schedule" }
+solana-epoch-schedule = { path = "../solana-sdk/epoch-schedule" }
 
-solana-example-mocks = { path = "/data2/liam/solana-sdk/example-mocks" }
+solana-example-mocks = { path = "../solana-sdk/example-mocks" }
 
-solana-fee-calculator = { path = "/data2/liam/solana-sdk/fee-calculator" }
+solana-fee-calculator = { path = "../solana-sdk/fee-calculator" }
 
-solana-fee-structure = { path = "/data2/liam/solana-sdk/fee-structure" }
+solana-fee-structure = { path = "../solana-sdk/fee-structure" }
 
-solana-file-download = { path = "/data2/liam/solana-sdk/file-download" }
+solana-file-download = { path = "../solana-sdk/file-download" }
 
-solana-frozen-abi = { path = "/data2/liam/solana-sdk/frozen-abi" }
+solana-frozen-abi = { path = "../solana-sdk/frozen-abi" }
 
-solana-frozen-abi-macro = { path = "/data2/liam/solana-sdk/frozen-abi-macro" }
+solana-frozen-abi-macro = { path = "../solana-sdk/frozen-abi-macro" }
 
-solana-genesis-config = { path = "/data2/liam/solana-sdk/genesis-config" }
+solana-genesis-config = { path = "../solana-sdk/genesis-config" }
 
-solana-hard-forks = { path = "/data2/liam/solana-sdk/hard-forks" }
+solana-hard-forks = { path = "../solana-sdk/hard-forks" }
 
-solana-inflation = { path = "/data2/liam/solana-sdk/inflation" }
+solana-inflation = { path = "../solana-sdk/inflation" }
 
-solana-instructions-sysvar = { path = "/data2/liam/solana-sdk/instructions-sysvar" }
+solana-instructions-sysvar = { path = "../solana-sdk/instructions-sysvar" }
 
-solana-keccak-hasher = { path = "/data2/liam/solana-sdk/keccak-hasher" }
+solana-keccak-hasher = { path = "../solana-sdk/keccak-hasher" }
 
-solana-last-restart-slot = { path = "/data2/liam/solana-sdk/last-restart-slot" }
+solana-last-restart-slot = { path = "../solana-sdk/last-restart-slot" }
 
-solana-loader-v2-interface = { path = "/data2/liam/solana-sdk/loader-v2-interface" }
+solana-loader-v2-interface = { path = "../solana-sdk/loader-v2-interface" }
 
-solana-loader-v4-interface = { path = "/data2/liam/solana-sdk/loader-v4-interface" }
+solana-loader-v4-interface = { path = "../solana-sdk/loader-v4-interface" }
 
-solana-msg = { path = "/data2/liam/solana-sdk/msg" }
+solana-msg = { path = "../solana-sdk/msg" }
 
-solana-native-token = { path = "/data2/liam/solana-sdk/native-token" }
+solana-native-token = { path = "../solana-sdk/native-token" }
 
-solana-nonce = { path = "/data2/liam/solana-sdk/nonce" }
+solana-nonce = { path = "../solana-sdk/nonce" }
 
-solana-offchain-message = { path = "/data2/liam/solana-sdk/offchain-message" }
+solana-offchain-message = { path = "../solana-sdk/offchain-message" }
 
-solana-package-metadata = { path = "/data2/liam/solana-sdk/package-metadata" }
+solana-package-metadata = { path = "../solana-sdk/package-metadata" }
 
-solana-package-metadata-macro = { path = "/data2/liam/solana-sdk/package-metadata-macro" }
+solana-package-metadata-macro = { path = "../solana-sdk/package-metadata-macro" }
 
-solana-packet = { path = "/data2/liam/solana-sdk/packet" }
+solana-packet = { path = "../solana-sdk/packet" }
 
-solana-poh-config = { path = "/data2/liam/solana-sdk/poh-config" }
+solana-poh-config = { path = "../solana-sdk/poh-config" }
 
-solana-precompile-error = { path = "/data2/liam/solana-sdk/precompile-error" }
+solana-precompile-error = { path = "../solana-sdk/precompile-error" }
 
-solana-presigner = { path = "/data2/liam/solana-sdk/presigner" }
+solana-presigner = { path = "../solana-sdk/presigner" }
 
-solana-program-error = { path = "/data2/liam/solana-sdk/program-error" }
+solana-program-error = { path = "../solana-sdk/program-error" }
 
-solana-program-memory = { path = "/data2/liam/solana-sdk/program-memory" }
+solana-program-memory = { path = "../solana-sdk/program-memory" }
 
-solana-program-option = { path = "/data2/liam/solana-sdk/program-option" }
+solana-program-option = { path = "../solana-sdk/program-option" }
 
-solana-program-pack = { path = "/data2/liam/solana-sdk/program-pack" }
+solana-program-pack = { path = "../solana-sdk/program-pack" }
 
-solana-rent = { path = "/data2/liam/solana-sdk/rent" }
+solana-rent = { path = "../solana-sdk/rent" }
 
-solana-program-entrypoint = { path = "/data2/liam/solana-sdk/program-entrypoint" }
+solana-program-entrypoint = { path = "../solana-sdk/program-entrypoint" }
 
-solana-quic-definitions = { path = "/data2/liam/solana-sdk/quic-definitions" }
+solana-quic-definitions = { path = "../solana-sdk/quic-definitions" }
 
-solana-rent-collector = { path = "/data2/liam/solana-sdk/rent-collector" }
+solana-rent-collector = { path = "../solana-sdk/rent-collector" }
 
-solana-rent-debits = { path = "/data2/liam/solana-sdk/rent-debits" }
+solana-rent-debits = { path = "../solana-sdk/rent-debits" }
 
-solana-reward-info = { path = "/data2/liam/solana-sdk/reward-info" }
+solana-reward-info = { path = "../solana-sdk/reward-info" }
 
-solana-sdk-ids = { path = "/data2/liam/solana-sdk/sdk-ids" }
+solana-sdk-ids = { path = "../solana-sdk/sdk-ids" }
 
-solana-sdk-macro = { path = "/data2/liam/solana-sdk/sdk-macro" }
+solana-sdk-macro = { path = "../solana-sdk/sdk-macro" }
 
-solana-secp256k1-program = { path = "/data2/liam/solana-sdk/secp256k1-program" }
+solana-secp256k1-program = { path = "../solana-sdk/secp256k1-program" }
 
-solana-secp256k1-recover = { path = "/data2/liam/solana-sdk/secp256k1-recover" }
+solana-secp256k1-recover = { path = "../solana-sdk/secp256k1-recover" }
 
-solana-seed-phrase = { path = "/data2/liam/solana-sdk/seed-phrase" }
+solana-seed-phrase = { path = "../solana-sdk/seed-phrase" }
 
-solana-serde = { path = "/data2/liam/solana-sdk/serde" }
+solana-serde = { path = "../solana-sdk/serde" }
 
-solana-serde-varint = { path = "/data2/liam/solana-sdk/serde-varint" }
+solana-serde-varint = { path = "../solana-sdk/serde-varint" }
 
-solana-serialize-utils = { path = "/data2/liam/solana-sdk/serialize-utils" }
+solana-serialize-utils = { path = "../solana-sdk/serialize-utils" }
 
-solana-sha256-hasher = { path = "/data2/liam/solana-sdk/sha256-hasher" }
+solana-sha256-hasher = { path = "../solana-sdk/sha256-hasher" }
 
-solana-short-vec = { path = "/data2/liam/solana-sdk/short-vec" }
+solana-short-vec = { path = "../solana-sdk/short-vec" }
 
-solana-shred-version = { path = "/data2/liam/solana-sdk/shred-version" }
+solana-shred-version = { path = "../solana-sdk/shred-version" }
 
-solana-slot-hashes = { path = "/data2/liam/solana-sdk/slot-hashes" }
+solana-slot-hashes = { path = "../solana-sdk/slot-hashes" }
 
-solana-slot-history = { path = "/data2/liam/solana-sdk/slot-history" }
+solana-slot-history = { path = "../solana-sdk/slot-history" }
 
-solana-stable-layout = { path = "/data2/liam/solana-sdk/stable-layout" }
+solana-stable-layout = { path = "../solana-sdk/stable-layout" }
 
-solana-system-transaction = { path = "/data2/liam/solana-sdk/system-transaction" }
+solana-system-transaction = { path = "../solana-sdk/system-transaction" }
 
-solana-sysvar = { path = "/data2/liam/solana-sdk/sysvar" }
+solana-sysvar = { path = "../solana-sdk/sysvar" }
 
-solana-sysvar-id = { path = "/data2/liam/solana-sdk/sysvar-id" }
+solana-sysvar-id = { path = "../solana-sdk/sysvar-id" }
 
-solana-time-utils = { path = "/data2/liam/solana-sdk/time-utils" }
+solana-time-utils = { path = "../solana-sdk/time-utils" }
 
-solana-validator-exit = { path = "/data2/liam/solana-sdk/validator-exit" }
+solana-validator-exit = { path = "../solana-sdk/validator-exit" }
 
-solana-account = { path = "/data2/liam/solana-sdk/account" }
+solana-account = { path = "../solana-sdk/account" }
 
-solana-nonce-account = { path = "/data2/liam/solana-sdk/nonce-account" }
-solana-program = { path = "/data2/liam/solana-sdk/program" }
-solana-precompiles = { path = "/data2/liam/solana-sdk/precompiles" }
-solana-feature-set = { path = "/data2/liam/solana-sdk/feature-set" }
-solana-sdk = { path = "/data2/liam/solana-sdk/sdk" }
-solana-feature-gate-interface = { path = "/data2/liam/solana-sdk/feature-gate-interface" }
+solana-nonce-account = { path = "../solana-sdk/nonce-account" }
+solana-program = { path = "../solana-sdk/program" }
+solana-precompiles = { path = "../solana-sdk/precompiles" }
+solana-feature-set = { path = "../solana-sdk/feature-set" }
+solana-sdk = { path = "../solana-sdk/sdk" }
+solana-feature-gate-interface = { path = "../solana-sdk/feature-gate-interface" }

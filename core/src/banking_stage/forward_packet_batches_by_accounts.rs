@@ -177,50 +177,20 @@ mod tests {
             system_instruction,
             transaction::{SanitizedTransaction, Transaction},
         },
-        std::sync::mpsc::channel,
     };
 
-    fn setup_qat() -> (
-        Option<std::sync::mpsc::Sender<()>>,
-        Option<std::thread::JoinHandle<()>>,
-        Instance,
-    ) {
+    fn setup_qat() -> Instance {
         qat_shim::qat::start_session("SSL").expect("start session failed");
-        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
         let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
         inst.set_address_translation()
             .expect("set address translation failed");
         inst.start().expect("start instance failed");
-        let (tx_poll, poll) = if inst.is_polled().unwrap() {
-            let (tx, rx) = channel();
-            let inst2 = inst.clone();
-            let poll = std::thread::spawn(move || {
-                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                    let _ = inst2.clone().poll_once();
-                }
-                println!("Polling thread exiting");
-            });
-            (Some(tx), Some(poll))
-        } else {
-            (None, None)
-        };
-        (tx_poll, poll, inst)
+        inst
     }
 
-    fn qat_tear_down(
-        tx_poll: Option<std::sync::mpsc::Sender<()>>,
-        poll: Option<std::thread::JoinHandle<()>>,
-        inst: Instance,
-    ) {
-        if let Some(tx_poll) = tx_poll {
-            tx_poll
-                .send(())
-                .expect("Failed to send stop signal to polling thread");
-            poll.unwrap().join().expect("Polling thread panicked");
-        }
+    fn qat_tear_down(inst: Instance) {
         inst.stop().expect("stop instance failed");
         qat_shim::qat::stop_session().expect("stop session failed");
-        qat_shim::qat::qae_mem_destroy();
     }
 
     /// build test transaction, return corresponding sanitized_transaction and deserialized_packet,
@@ -257,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_try_add_packet_to_multiple_batches() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         // setup two transactions, one has high priority that writes to hot account, the
         // other write to non-contentious account with no priority
         let hot_account = solana_pubkey::new_rand();
@@ -333,12 +303,12 @@ mod tests {
             assert_eq!(1, batches.next().unwrap().len());
             assert!(batches.next().is_none());
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_try_add_packet_to_single_batch() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let (tx, packet, limit_ratio) =
             build_test_transaction_and_packet(10, &solana_pubkey::new_rand());
         let number_of_batches = 1;
@@ -391,12 +361,12 @@ mod tests {
             let mut batches = forward_packet_batches_by_accounts.iter_batches();
             assert_eq!(2, batches.next().unwrap().len());
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_get_batch_index_by_updated_costs() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let test_cost = 99;
 
         // check against block limit only
@@ -475,6 +445,6 @@ mod tests {
                 )
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 }

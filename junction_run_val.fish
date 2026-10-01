@@ -1,8 +1,8 @@
-set -lx LD_LIBRARY_PATH /data/liam/qatlib/build/lib $LD_LIBRARY_PATH
+set -lx LD_LIBRARY_PATH /data/liam/qat_driver/build $LD_LIBRARY_PATH
 set MASTER 192.168.120.7
 
-pkill "faucet"
-pkill "validator"
+# pkill "faucet"
+# pkill "validator"
 /data2/liam/agave/target/release-with-debug/solana-faucet --keypair /data2/liam/agave/config/faucet.json &
 sleep 5
 

@@ -6650,7 +6650,7 @@ dependencies = [
 name = "solana-bench-tps-rate"
 version = "2.2.18"
 dependencies = [
- "clap 2.33.3",
+ "clap 2.34.0",
  "crossbeam-channel",
  "log",
  "rand 0.8.5",
@@ -6660,7 +6660,7 @@ dependencies = [
  "solana-client",
  "solana-connection-cache",
  "solana-core",
- "solana-logger",
+ "solana-logger 2.3.1",
  "solana-measure",
  "solana-metrics",
  "solana-net-utils",
@@ -6672,7 +6672,7 @@ dependencies = [
  "solana-tpu-client",
  "solana-transaction-status",
  "solana-version",
- "thiserror 2.0.11",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

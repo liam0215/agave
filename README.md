@@ -9,6 +9,12 @@
 [![Build status](https://badge.buildkite.com/8cc350de251d61483db98bdfc895b9ea0ac8ffa4a32ee850ed.svg?branch=master)](https://buildkite.com/solana-labs/solana/builds?branch=master)
 [![codecov](https://codecov.io/gh/solana-labs/solana/branch/master/graph/badge.svg)](https://codecov.io/gh/solana-labs/solana)
 
+> **Experimental Junction+QAT fork:** This checkout has modified cryptography and
+> local sibling-repository dependencies. For the collaborator's build, genesis,
+> and validator/benchmark instructions, start at
+> [packaging/junction-qat/README.md](packaging/junction-qat/README.md), not the
+> upstream instructions below. It is not a stock Agave release.
+
 # Building
 
 ## **1. Install rustc, cargo and rustfmt.**

@@ -41,7 +41,7 @@ solana-message = { workspace = true }
 solana-pubkey = { workspace = true, default-features = false }
 solana-rpc-client = { workspace = true }
 solana-sha256-hasher = { workspace = true }
-solana-signature = { default-features = false, path = "/data2/liam/solana-sdk/signature" }
+solana-signature = { default-features = false, path = "../../solana-sdk/signature" }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 solana-version = { workspace = true }

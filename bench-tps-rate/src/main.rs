@@ -730,7 +730,7 @@ fn spawn_sender_thread(
             let mut rate_limiter = RateLimiter::new(target_tps);
             let mut local_sent = 0u64;
             let mut last_blockhash_time = Instant::now();
-            let blockhash_refresh_interval = Duration::from_secs(2);
+            let blockhash_refresh_interval = Duration::from_secs(10);
             let measurement_end = warmup_duration + measurement_duration;
 
             loop {

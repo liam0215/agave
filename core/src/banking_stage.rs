@@ -92,7 +92,7 @@ pub(crate) mod unified_scheduler;
 pub mod unified_scheduler;
 
 // Fixed thread size seems to be fastest on GCP setup
-pub const NUM_THREADS: u32 = 6;
+pub const NUM_THREADS: u32 = 16;
 
 const TOTAL_BUFFERED_PACKETS: usize = 100_000;
 
@@ -822,12 +822,14 @@ impl BankingStage {
     }
 
     pub fn num_threads() -> u32 {
-        cmp::max(
+        let threads = cmp::max(
             env::var("SOLANA_BANKING_THREADS")
                 .map(|x| x.parse().unwrap_or(NUM_THREADS))
                 .unwrap_or(NUM_THREADS),
             MIN_TOTAL_THREADS,
-        )
+        );
+        println!("Using {} threads for banking stage", threads);
+        threads
     }
 
     pub fn join(self) -> thread::Result<()> {

@@ -1460,48 +1460,20 @@ mod test {
             packet::PACKET_DATA_SIZE,
             signature::{Keypair, Signer},
         },
-        std::{cmp::Ordering, collections::HashMap, iter::repeat_with, sync::mpsc::channel},
+        std::{cmp::Ordering, collections::HashMap, iter::repeat_with},
         test_case::test_case,
     };
 
-    fn setup_qat() -> (
-        Option<std::sync::mpsc::Sender<()>>,
-        Option<std::thread::JoinHandle<()>>,
-        Instance,
-    ) {
+    fn setup_qat() -> Instance {
         qat_shim::qat::start_session("SSL").expect("start session failed");
-        qat_shim::qat::qae_mem_init().expect("qae_mem_init failed");
         let inst: Instance = qat::get_first_instance().expect("failed to get first instance");
         inst.set_address_translation()
             .expect("set address translation failed");
         inst.start().expect("start instance failed");
-        let (tx_poll, poll) = if inst.is_polled().unwrap() {
-            let (tx, rx) = channel();
-            let inst2 = inst.clone();
-            let poll = std::thread::spawn(move || {
-                while matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)) {
-                    let _ = inst2.clone().poll_once();
-                }
-                println!("Polling thread exiting");
-            });
-            (Some(tx), Some(poll))
-        } else {
-            (None, None)
-        };
-        (tx_poll, poll, inst)
+        inst
     }
 
-    fn qat_tear_down(
-        tx_poll: Option<std::sync::mpsc::Sender<()>>,
-        poll: Option<std::thread::JoinHandle<()>>,
-        inst: Instance,
-    ) {
-        if let Some(tx_poll) = tx_poll {
-            tx_poll
-                .send(())
-                .expect("Failed to send stop signal to polling thread");
-            poll.unwrap().join().expect("Polling thread panicked");
-        }
+    fn qat_tear_down(inst: Instance) {
         inst.stop().expect("stop instance failed");
         qat_shim::qat::stop_session().expect("stop session failed");
     }
@@ -1576,29 +1548,29 @@ mod test {
 
     #[test]
     fn test_merkle_proof_entry_from_hash() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let mut rng = rand::thread_rng();
         let bytes: [u8; 32] = rng.gen();
         let hash = Hash::from(bytes);
         let entry = &hash.as_ref()[..SIZE_OF_MERKLE_PROOF_ENTRY];
         let entry = MerkleProofEntry::try_from(entry).unwrap();
         assert_eq!(entry, &bytes[..SIZE_OF_MERKLE_PROOF_ENTRY]);
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_get_merkle_tree_size() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         const TREE_SIZE: [usize; 15] = [0, 1, 3, 6, 7, 11, 12, 14, 15, 20, 21, 23, 24, 27, 28];
         for (num_shreds, size) in TREE_SIZE.into_iter().enumerate() {
             assert_eq!(get_merkle_tree_size(num_shreds), size);
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test]
     fn test_make_merkle_proof_error() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let mut rng = rand::thread_rng();
         let nodes = repeat_with(|| rng.gen::<[u8; 32]>()).map(Hash::from);
         let nodes: Vec<_> = nodes.take(5).collect();
@@ -1610,7 +1582,7 @@ mod test {
                 Some(Err(Error::InvalidMerkleProof))
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     fn run_merkle_tree_round_trip<R: Rng>(rng: &mut R, size: usize) {
@@ -1632,12 +1604,12 @@ mod test {
 
     #[test]
     fn test_merkle_tree_round_trip() {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let mut rng = rand::thread_rng();
         for size in 1..=143 {
             run_merkle_tree_round_trip(&mut rng, size);
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test_case(19, false, false)]
@@ -1662,7 +1634,7 @@ mod test {
     #[test_case(73, true, false)]
     #[test_case(73, true, true)]
     fn test_recover_merkle_shreds(num_shreds: usize, chained: bool, resigned: bool) {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let mut rng = rand::thread_rng();
         let reed_solomon_cache = ReedSolomonCache::default();
         for num_data_shreds in 1..num_shreds {
@@ -1676,7 +1648,7 @@ mod test {
                 &reed_solomon_cache,
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     fn run_recover_merkle_shreds<R: Rng + CryptoRng>(
@@ -1881,7 +1853,7 @@ mod test {
     #[test_case(46800, true, false)]
     #[test_case(46800, true, true)]
     fn test_make_shreds_from_data(data_size: usize, chained: bool, is_last_in_slot: bool) {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         // let mut rng = rand::thread_rng();
         // Seed WORKS
         // let mut rng = rand::rngs::StdRng::seed_from_u64(0);
@@ -1898,7 +1870,7 @@ mod test {
                 &reed_solomon_cache,
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[test_case(false, false)]
@@ -1906,7 +1878,7 @@ mod test {
     #[test_case(true, false)]
     #[test_case(true, true)]
     fn test_make_shreds_from_data_rand(chained: bool, is_last_in_slot: bool) {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let mut rng = rand::thread_rng();
         let reed_solomon_cache = ReedSolomonCache::default();
         for _ in 0..32 {
@@ -1919,7 +1891,7 @@ mod test {
                 &reed_solomon_cache,
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     #[ignore]
@@ -1928,7 +1900,7 @@ mod test {
     #[test_case(true, false)]
     #[test_case(true, true)]
     fn test_make_shreds_from_data_paranoid(chained: bool, is_last_in_slot: bool) {
-        let (tx_poll, poll, inst) = setup_qat();
+        let inst = setup_qat();
         let mut rng = rand::thread_rng();
         let reed_solomon_cache = ReedSolomonCache::default();
         for data_size in 0..=PACKET_DATA_SIZE * 4 * 64 {
@@ -1940,7 +1912,7 @@ mod test {
                 &reed_solomon_cache,
             );
         }
-        qat_tear_down(tx_poll, poll, inst);
+        qat_tear_down(inst);
     }
 
     fn run_make_shreds_from_data<R: Rng>(

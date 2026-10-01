@@ -142,7 +142,7 @@ pub fn withdraw_durable_nonce_accounts<T: 'static + TpsClient + Send + Sync + ?S
     });
 }
 
-const MAX_SPENDS_PER_TX: u64 = 4;
+const MAX_SPENDS_PER_TX: u64 = 8;
 
 // Size of the chunk of transactions
 // try to transfer a "few" at a time with recent blockhash
